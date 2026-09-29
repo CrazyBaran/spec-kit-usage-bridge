@@ -61,8 +61,8 @@ Requirements (planned): Spec Kit with agent runtime events, Python 3.9+, git, Cl
 
 | Stage | Status |
 |---|---|
-| Design brief | ✅ [`docs/superpowers/briefs/2026-09-29-usage-bridge-v0.1-brief.md`](docs/superpowers/briefs/2026-09-29-usage-bridge-v0.1-brief.md) |
-| Design spec (brainstorming) | ⏳ Not started |
+| Design brief | ✅ [`docs/prompts/usage-bridge-bootstrap-prompt_1.md`](docs/prompts/usage-bridge-bootstrap-prompt_1.md) |
+| Design spec (brainstorming) | 📝 In review — [`docs/superpowers/specs/2026-09-29-usage-bridge-v0.1-design.md`](docs/superpowers/specs/2026-09-29-usage-bridge-v0.1-design.md) |
 | Implementation plan | ⏳ Not started |
 | v0.1.0 implementation & tests | ⏳ Not started |
 | First release | ⏳ Not started |
