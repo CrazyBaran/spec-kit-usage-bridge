@@ -1,0 +1,63 @@
+# Spec Kit extension template .gitignore (verbatim):
+# https://github.com/github/spec-kit/blob/main/extensions/template/.gitignore
+# Project-specific additions follow at the end.
+
+# Local configuration overrides
+*-config.local.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Temporary files
+*.tmp
+.cache/
+
+# --- Usage Bridge additions ---
+
+# Python virtualenv, secrets and tool caches not covered above
+.venv/
+.env
+.ruff_cache/
+.mypy_cache/
+
+# Windows
+desktop.ini
+
+# Claude Code: personal settings and notes, native worktrees
+.claude/settings.local.json
+CLAUDE.local.md
+.claude/worktrees/
+
+# Superpowers: git worktree fallback dir, brainstorm/SDD scratch files
+.worktrees/
+.superpowers/
