@@ -72,6 +72,18 @@ def test_malformed_and_truncated_lines_are_tolerated(tmp_path):
     assert [r.request_id for r in digest_session(files_of(repo)).requests] == ["r1", "r2"]
 
 
+def test_non_object_json_lines_are_skipped(tmp_path):
+    # upstream parse_session raises AttributeError on such a line; the digest must not
+    repo = make_repo(tmp_path)
+    b = SessionBuilder("s1", cwd=repo)
+    b.reply("r1", output=1)
+    b.raw("[1, 2, 3]")
+    b.raw('"just a string"')
+    b.reply("r2", output=2)
+    b.write()
+    assert [r.request_id for r in digest_session(files_of(repo)).requests] == ["r1", "r2"]
+
+
 def test_branch_changes_and_cwds(tmp_path):
     repo = make_repo(tmp_path)
     b = SessionBuilder("s1", cwd=repo, branch="main")
