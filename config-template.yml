@@ -1,0 +1,13 @@
+enabled: true
+output:
+  dir: "{feature_dir}"          # where token-usage.md and token-usage/ are written; placeholders {feature_dir}, {feature_id}
+transcripts:
+  extra_dirs: []                # extra Claude project directories to scan (e.g. another clone)
+pricing:
+  overrides: {}                 # "<model prefix>": {input: 5.0, output: 25.0, cache_read: 0.5}  (USD per million tokens)
+privacy:
+  prompt_previews: false
+capture:
+  deadline_seconds: 15          # capped at 15 (50% of the 30 s event timeout)
+log:
+  level: info                   # error | warning | info | debug

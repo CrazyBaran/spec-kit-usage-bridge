@@ -18,3 +18,9 @@ extend-exclude = ["scripts/python/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Entrypoints must parse and report on any Python 3: keep the version guard and %-formatting.
+"scripts/python/capture.py" = ["UP"]
+"scripts/python/report.py" = ["UP"]
+"scripts/python/check.py" = ["UP"]
