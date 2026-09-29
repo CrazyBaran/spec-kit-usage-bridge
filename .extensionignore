@@ -1,0 +1,14 @@
+# Paths Spec Kit leaves out when it installs this extension (gitignore syntax).
+tests/
+tools/
+docs/
+.github/
+.superpowers/
+.worktrees/
+.claude/
+.venv/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+pyproject.toml
+requirements-dev.txt

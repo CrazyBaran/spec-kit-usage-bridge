@@ -1,0 +1,19 @@
+# Development tooling only — the extension itself is not a Python distribution.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts/python", "tests"]
+addopts = "-ra"
+markers = [
+    "contract: tests against the vendored token-usage module",
+    "integration: needs uv, git and network (Spec Kit v1.0.12)",
+    "perf: performance budgets",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+extend-exclude = ["scripts/python/vendor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

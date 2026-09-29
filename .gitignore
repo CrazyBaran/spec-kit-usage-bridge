@@ -61,3 +61,9 @@ CLAUDE.local.md
 # Superpowers: git worktree fallback dir, brainstorm/SDD scratch files
 .worktrees/
 .superpowers/
+
+# --- Installed copy of the extension ---
+# `specify extension add` copies this file into .specify/extensions/usage-bridge/, where it keeps
+# per-developer config and Usage Bridge's runtime files out of the user's repository.
+*.local.yml
+.runtime/
