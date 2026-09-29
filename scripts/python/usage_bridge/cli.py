@@ -1,4 +1,4 @@
-"""Handlers behind the ``capture`` and ``report`` scripts (spec §2.1, §4.3-4.4, §6.2).
+"""Handlers behind the ``capture``, ``report`` and ``check`` scripts (spec §2.1, §4.3-4.4, §6.2-6.3).
 
 The ``*_main`` functions take their streams, environment and cwd as arguments so tests can drive
 them; the ``*_entry`` functions wire the real process state for the tiny entrypoint scripts.
@@ -9,9 +9,11 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, TextIO
 
+from . import checks
 from .attribution import existing_feature_dirs
 from .config import load_config
 from .paths import project_root, runtime_dir, same_path
@@ -22,6 +24,7 @@ from .timeline import TimelineEntry, active_feature, read, relative_dir
 
 MAX_STDIN_BYTES = 1 << 20
 REPORT_USAGE = "usage: report [feature] [--all] [--json]"
+CHECK_USAGE = "usage: check [--verbose] [--json]"
 
 
 def read_stdin(stream: BinaryIO | None) -> str:
@@ -157,6 +160,28 @@ def report_main(argv: Sequence[str], stdout: TextIO, env: Mapping[str, str], cwd
     return 0
 
 
+def check_main(argv: Sequence[str], stdout: TextIO, env: Mapping[str, str], cwd: Path,
+               now: datetime | None = None) -> int:
+    """The check script: 1 when a FAIL-level check does not pass; warnings never fail."""
+    verbose = as_json = False
+    for arg in argv:
+        if arg == "--verbose":
+            verbose = True
+        elif arg == "--json":
+            as_json = True
+        else:
+            stdout.write(CHECK_USAGE + "\n")
+            return 1
+    now = now or datetime.now(timezone.utc)
+    project = project_root(Path(cwd)) or Path(cwd)
+    results = checks.run_checks(project, env, now)
+    if as_json:
+        stdout.write(dump_json(checks.as_json(results)))
+    else:
+        stdout.write(checks.format_results(results, verbose, now, checks.last_capture_ts(project)))
+    return 1 if checks.failed(results) else 0
+
+
 def _utf8(stream: TextIO) -> TextIO:
     """Write UTF-8 whatever the locale: a Windows pipe defaults to the ANSI code page, which has no → or ≈."""
     reconfigure = getattr(stream, "reconfigure", None)
@@ -178,3 +203,7 @@ def capture_entry() -> int:
 
 def report_entry() -> int:
     return report_main(sys.argv[1:], _utf8(sys.stdout), os.environ, Path.cwd())
+
+
+def check_entry() -> int:
+    return check_main(sys.argv[1:], _utf8(sys.stdout), os.environ, Path.cwd())
