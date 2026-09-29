@@ -225,6 +225,21 @@ class SessionBuilder:
         return main
 
 
+def stop_payload(session_id: str, main: Path, cwd: Path) -> str:
+    """A Claude Code Stop hook payload as the dispatcher pipes it to capture."""
+    return json.dumps({"session_id": session_id, "transcript_path": str(main), "cwd": str(cwd),
+                       "hook_event_name": "Stop"})
+
+
+def single_session(tmp: Path) -> tuple[Path, str]:
+    """A repo with specs/001-login and one /speckit-plan session s1 on branch 001-login; returns (repo, payload)."""
+    repo = make_repo(tmp, features=("001-login",))
+    b = SessionBuilder("s1", cwd=repo, branch="001-login")
+    b.command("/speckit-plan")
+    b.reply("r1", input=10, output=20, cache_read=100, cache_5m=50)
+    return repo, stop_payload("s1", b.write(), repo)
+
+
 def _write_lines(path: Path, lines: list[str]) -> None:
     with path.open("w", encoding="utf-8", newline="\n") as fh:
         for line in lines:
