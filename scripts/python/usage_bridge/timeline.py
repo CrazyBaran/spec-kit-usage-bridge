@@ -30,7 +30,7 @@ class TimelineEntry:
     branch: str | None
 
 
-def _relative(value: str, work: Path) -> str | None:
+def relative_dir(value: str, work: Path) -> str | None:
     """A feature directory as a POSIX path relative to ``work``; None when it lies outside."""
     text = value.strip().replace("\\", "/")
     if not text:
@@ -51,14 +51,14 @@ def active_feature(work: Path, env: Mapping[str, str]) -> tuple[str | None, str]
     """The feature Spec Kit would use in ``work``: (relative POSIX dir, "env" | "feature.json" | "none")."""
     override = env.get(FEATURE_ENV, "")
     if override.strip():
-        found = _relative(override, work)
+        found = relative_dir(override, work)
         return (found, "env") if found else (None, "none")
     try:
         data = json.loads((Path(work) / ".specify" / "feature.json").read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return None, "none"
     value = data.get("feature_directory") if isinstance(data, dict) else None
-    found = _relative(value, work) if isinstance(value, str) else None
+    found = relative_dir(value, work) if isinstance(value, str) else None
     return (found, "feature.json") if found else (None, "none")
 
 
