@@ -26,3 +26,8 @@ def test_release_builds_and_publishes():
     assert rel[True]['push']['tags'] == ['v*'] and rel['jobs']['release']['needs'] == 'ci'
     assert rel['jobs']['release']['permissions'] == {'contents': 'write'}
     assert 'tools/build_release.py' in json.dumps(rel) and 'gh release create' in json.dumps(rel)
+
+
+def test_setup_uv_uses_existing_release_tag():
+    uses = [step['uses'] for step in wf('ci.yml')['jobs']['integration']['steps'] if 'uses' in step]
+    assert 'astral-sh/setup-uv@v10.2.0' in uses
