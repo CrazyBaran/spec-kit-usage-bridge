@@ -13,11 +13,13 @@ from usage_bridge.timeline import TimelineEntry
 
 
 def entry(ts, sid="s1", fd=None):
-    return TimelineEntry(ts, sid, "w", fd, "feature.json" if fd else "none", None)
+    return TimelineEntry(ts, sid, "w", fd, "feature.json" if fd else "none", None,
+                         "closing", "2026-09-29T10:05:00.000Z")
 
 
 def run(phase="plan", end="2026-09-29T10:05:00.000Z", branch=None, sid="s1"):
-    return Run(sid, "core", phase, "/speckit-" + phase, end, end, [], [], [], branch, None, False)
+    closing = Request("closing", end, "claude-test-1", 0, 0, 0, 0, 0, 0)
+    return Run(sid, "core", phase, "/speckit-" + phase, end, end, [closing], [], [], branch, None, False)
 
 
 def make_digest(session_id, first_ts, request_ids, subagent_ids=()):
@@ -45,7 +47,7 @@ def test_dedup_ignores_synthetic_ids():
     assert dedup_across_sessions([d1, d2])[1] == 0
 
 
-def test_timeline_first_entry_at_or_after_run_end():
+def test_timeline_matches_closing_request_at_or_after_its_timestamp():
     tl = {"s1": [entry("2026-09-29T10:03:00.000Z", fd="specs/001-a"),
                  entry("2026-09-29T10:06:00.000Z", fd="specs/002-b")]}
     (a,) = attribute_runs([run()], tl, ["specs/001-a", "specs/002-b"])
@@ -93,3 +95,9 @@ def test_existing_feature_dirs(tmp_path):
         (tmp_path / d).mkdir(parents=True)
     tl = [entry("t", fd="custom/x"), entry("t", fd="gone/y")]
     assert existing_feature_dirs(tmp_path, tl) == ["custom/x", "specs/001-a", "specs/002-b"]
+
+
+def test_legacy_timeline_without_request_evidence_uses_branch():
+    legacy = TimelineEntry("2026-09-29T10:06:00.000Z", "s1", "w", "specs/002-b", "env", None)
+    (a,) = attribute_runs([run(branch="001-a")], {"s1": [legacy]}, ["specs/001-a", "specs/002-b"])
+    assert (a.bucket.feature_dir, a.attributed_by) == ("specs/001-a", "branch")

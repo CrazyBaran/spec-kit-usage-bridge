@@ -54,3 +54,19 @@ def test_write_if_changed_keeps_original_on_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "replace", locked)
     assert write_if_changed(p, "new\n") is False
     assert p.read_text(encoding="utf-8") == "old\n" and list(out.iterdir()) == [p]
+
+
+@pytest.mark.parametrize("machines,expected", [(("same", "same"), 2), (("one", "two"), 3), (("", ""), 3)])
+def test_merge_alias_snapshots_prefers_newest_and_preserves_distinct_machines(machines, expected):
+    from usage_bridge.render import merge_feature
+    def source(author, machine, stamp, calls):
+        session = {"session_id": "s1", "first_ts": "2026-09-29T09:00:00.000Z", "last_ts": stamp,
+                   "runs": [{"phase": "plan", "calls": calls, "start_ts": "2026-09-29T09:00:00.000Z"}]}
+        return author_file("001-a", "specs/001-a", author, machine, {}, [session], "complete", [], [])
+    older = source("old-name", machines[0], "2026-09-29T09:01:00.000Z", 1)
+    newer = source("new-name", machines[1], "2026-09-29T09:02:00.000Z", 2)
+    report = merge_feature([older, newer])
+    assert report["totals"]["calls"] == expected
+    assert report == merge_feature([newer, older])
+    if machines[0] == machines[1] and machines[0]:
+        assert report["runs"][0]["author"] == "new-name"

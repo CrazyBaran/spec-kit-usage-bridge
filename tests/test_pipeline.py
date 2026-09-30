@@ -57,7 +57,9 @@ def test_timeline_entry_is_appended_and_used(tmp_path):
     b.reply("r1", output=1)
     run_capture(payload("s1", b.write(), repo), repo, dict(os.environ))
     data = json.loads((repo / "specs/001-login/token-usage" / own).read_text(encoding="utf-8"))
-    assert len(read(repo / ".git" / "usage-bridge")) == 1
+    entries = read(repo / ".git" / "usage-bridge")
+    assert len(entries) == 2
+    assert entries[-1].last_request_id == "r1"
     assert data["sessions"][0]["runs"][0]["attributed_by"] == "timeline"
 
 
@@ -195,3 +197,71 @@ def test_output_directory_stays_within_checkout(tmp_path):
     from usage_bridge.config import Config
     repo = make_repo(tmp_path)
     assert pipeline._output_dir(repo, Config(output_dir='../outside'), 'specs/001-login') == repo / 'specs/001-login'
+
+
+@pytest.mark.parametrize('failure', ['stat', 'unlink'])
+def test_lock_io_failure_checks_deadline_instead_of_spinning(failure, monkeypatch):
+    from types import SimpleNamespace
+    attempts = []
+    class BrokenLock:
+        def stat(self):
+            if failure == 'stat':
+                raise PermissionError('denied')
+            return SimpleNamespace(st_mtime=0)
+        def unlink(self):
+            raise PermissionError('denied')
+    lock = pipeline._Lock(Path('unused'))
+    lock.path = BrokenLock()
+    def occupied(*args):
+        attempts.append(1)
+        if len(attempts) > 3:
+            pytest.fail('lock retry bypassed deadline')
+        raise FileExistsError()
+    monkeypatch.setattr(pipeline.os, 'open', occupied)
+    ticks = iter([0, 10])
+    monkeypatch.setattr(pipeline.time, 'monotonic', lambda: next(ticks))
+    assert lock.acquire(1) is False
+    assert len(attempts) == 1
+
+
+def test_missed_stop_does_not_move_earlier_phase_to_new_feature(tmp_path):
+    repo = make_repo(tmp_path, features=('001-old', '002-new'))
+    b = SessionBuilder('s1', cwd=repo, branch='001-old')
+    b.command('/speckit-plan')
+    b.reply('old-request', output=10)
+    b.set_branch('002-new')
+    b.command('/speckit-tasks')
+    b.reply('new-request', output=20)
+    main = b.write()
+    env = dict(os.environ, SPECIFY_FEATURE_DIRECTORY='specs/002-new')
+    assert run_capture(payload('s1', main, repo), repo, env).status == 'ok'
+    old = json.loads((repo / 'specs/001-old/token-usage' / own).read_text(encoding='utf-8'))
+    new = json.loads((repo / 'specs/002-new/token-usage' / own).read_text(encoding='utf-8'))
+    assert [(r['phase'], r['attributed_by']) for r in old['sessions'][0]['runs']] == [('plan', 'branch')]
+    assert [(r['phase'], r['attributed_by']) for r in new['sessions'][0]['runs']] == [('tasks', 'timeline')]
+
+
+def test_alias_change_counts_sessions_once_preserving_every_source(tmp_path):
+    from usage_bridge.config import load_config
+    from usage_bridge.render import merge_feature
+    repo, raw = single_session(tmp_path)
+    old_env = dict(os.environ, SPECKIT_USAGE_BRIDGE_AUTHOR_ALIAS='old-name')
+    assert run_capture(raw, repo, old_env).status == 'ok'
+    source_dir = repo / 'specs/001-login/token-usage'
+    previous = next(source_dir.glob('old-name.*.json'))
+    other = source_dir / f'other-author.{machine_id(socket.gethostname())}.json'
+    data = json.loads(previous.read_text(encoding='utf-8'))
+    data['author']['name'] = 'other-author'
+    data['sessions'][0]['session_id'] = 'another-person-session'
+    other.write_text(dump_json(data), encoding='utf-8')
+    old_bytes, other_bytes = previous.read_bytes(), other.read_bytes()
+    env = dict(os.environ, SPECKIT_USAGE_BRIDGE_AUTHOR_ALIAS='new-name')
+    assert run_capture(raw, repo, env).status == 'ok'
+    sources = pipeline.feature_sources(repo, load_config(repo, env), 'specs/001-login')
+    report = merge_feature(sources)
+    assert report['totals']['calls'] == 2
+    assert report['totals']['sessions'] == 2
+    assert previous.read_bytes() == old_bytes
+    assert other.read_bytes() == other_bytes
+    assert len(sources) == 3
+    assert merge_feature(list(reversed(sources))) == report

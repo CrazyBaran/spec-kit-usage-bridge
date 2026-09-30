@@ -13,6 +13,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 import sys
 from collections.abc import Iterator, Mapping
@@ -147,7 +148,12 @@ def oracle_segments(path: Path) -> list[dict]:
 # -- pricing -------------------------------------------------------------------------------------
 
 def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value >= 0
+    except OverflowError:
+        return False
 
 
 def _override_entry(rates: Any) -> dict[str, float] | None:
@@ -181,7 +187,8 @@ def load_rates(overrides: Mapping[str, Mapping[str, float]], runtime: Path) -> R
     for model, rates in (overrides or {}).items():
         entry = _override_entry(rates)
         if entry is None:
-            warnings.append(f"pricing override for {model!r} ignored: input and output must be numbers")
+            warnings.append(f"pricing override for {model!r} ignored: rates must be finite non-negative numbers "
+                            "(input and output required)")
             continue
         table[str(model)] = entry
         applied = True

@@ -102,7 +102,12 @@ def update(
     except (ValueError, UnicodeDecodeError) as exc:
         raise SystemExit("Cannot update vendor: " + str(exc)) from exc
 
-    version = sections[0][0]
+    released = [(version, body) for version, body in sections if version.lower() != "unreleased"]
+    if not released:
+        raise SystemExit("Cannot update vendor: CHANGELOG.md has no released version")
+    version = released[0][0]
+    unreleased = next((body for name, body in sections if name.lower() == "unreleased"), None)
+    unreleased_sha = _sha256(unreleased.encode("utf-8")) if unreleased else None
     new_info = {
         "repo": old_info.get("repo", UPSTREAM_REPO),
         "ref": ref,
@@ -111,6 +116,9 @@ def update(
         "files": {name: _sha256(archive[name]) for name in FILES},
     }
 
+    if unreleased_sha:
+        new_info["unreleased_sha256"] = unreleased_sha
+
     for name in FILES:
         destination = vendor / Path(name)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -118,7 +126,12 @@ def update(
     with manifest_path.open("w", encoding="utf-8", newline="\n") as manifest_file:
         manifest_file.write(json.dumps(new_info, indent=2, ensure_ascii=False) + "\n")
 
-    changes = _changed_sections(sections, old_info.get("upstream_version", ""))
+    previous = old_info.get("upstream_version", "").split("+", 1)[0]
+    if previous.lower() == "unreleased":
+        previous = ""  # legacy manifests provide no reliable release baseline
+    changes = _changed_sections(released, previous)
+    if unreleased and unreleased_sha != old_info.get("unreleased_sha256"):
+        changes = unreleased + ("\n\n" + changes if changes else "")
     print("Upstream CHANGELOG changes:")
     print(changes if changes else "No new CHANGELOG sections.")
     print("Run the contract tests: python -m pytest -m contract")

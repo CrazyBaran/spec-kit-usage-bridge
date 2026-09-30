@@ -148,3 +148,36 @@ def test_refuses_when_local_files_drifted(tmp_path):
 def test_urls_for_tag_and_commit():
     assert mod.archive_url("v0.7.0", False).endswith("/zip/refs/tags/v0.7.0")
     assert mod.archive_url("abc", True).endswith("/zip/abc")
+
+
+def test_unreleased_updates_keep_release_version_and_show_changed_content(tmp_path, capsys):
+    repo = copy_repo_vendor(tmp_path)
+    def archive(body, commit):
+        return fake_archive({'scripts/token_usage.py': b'print(1)\n', 'data/pricing.json': b'{}\n',
+                             'LICENSE': b'MIT\n',
+                             'CHANGELOG.md': b'## [Unreleased]\n' + body + b'\n## [0.6.1]\n- released\n'},
+                            comment=commit)
+    info = mod.update(repo, 'a' * 40, True, lambda url: archive(b'- first', b'a' * 40))
+    assert info['upstream_version'] == '0.6.1'
+    assert info['unreleased_sha256'].startswith('sha256:')
+    capsys.readouterr()
+    next_info = mod.update(repo, 'b' * 40, True, lambda url: archive(b'- second', b'b' * 40))
+    assert next_info['upstream_version'] == '0.6.1'
+    assert next_info['unreleased_sha256'] != info['unreleased_sha256']
+    output = capsys.readouterr().out
+    assert '- second' in output and '- released' not in output
+    mod.update(repo, 'c' * 40, True, lambda url: archive(b'- second', b'c' * 40))
+    assert 'No new CHANGELOG sections.' in capsys.readouterr().out
+
+
+def test_legacy_unreleased_manifest_does_not_hide_current_changes(tmp_path, capsys):
+    repo = copy_repo_vendor(tmp_path)
+    manifest = repo / 'scripts/python/vendor/token_usage/VENDOR.json'
+    info = json.loads(manifest.read_text(encoding='utf-8'))
+    info['upstream_version'] = 'Unreleased'
+    manifest.write_text(json.dumps(info), encoding='utf-8')
+    archive = fake_archive({'scripts/token_usage.py': b'print(1)\n', 'data/pricing.json': b'{}\n',
+                            'LICENSE': b'MIT\n', 'CHANGELOG.md': b'## [Unreleased]\n- current\n## [0.6.1]\n- old\n'},
+                           comment=b'a' * 40)
+    assert mod.update(repo, 'a' * 40, True, lambda url: archive)['upstream_version'] == '0.6.1'
+    assert '- current' in capsys.readouterr().out

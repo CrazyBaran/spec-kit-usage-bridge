@@ -48,3 +48,10 @@ def test_bad_values_fall_back_with_warning(tmp_path):
     write_cfg(tmp_path, "usage-bridge-config.yml", "capture:\n  deadline_seconds: soon\nlog:\n  level: loud\n")
     cfg = load_config(tmp_path, {})
     assert (cfg.deadline_seconds, cfg.log_level) == (15.0, "info") and len(cfg.warnings) == 2
+
+
+def test_nonfinite_deadlines_fall_back_with_warning(tmp_path):
+    for value in ('nan', 'inf', '-inf'):
+        cfg = load_config(tmp_path, {'SPECKIT_USAGE_BRIDGE_CAPTURE_DEADLINE_SECONDS': value})
+        assert cfg.deadline_seconds == 15.0
+        assert any('deadline_seconds' in warning for warning in cfg.warnings)

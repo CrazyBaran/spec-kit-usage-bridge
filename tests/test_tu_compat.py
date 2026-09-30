@@ -115,3 +115,19 @@ def test_oracle_segments_labels(tmp_path):
 def test_vendored_calls_write_nothing(tmp_path):
     tu_compat.load_rates({}, tmp_path / "rt")
     assert not Path(os.environ["TOKEN_USAGE_LEDGER_DIR"]).exists() and not (Path.home() / ".cache").exists()
+
+
+@pytest.mark.parametrize('value', [-1.0, float('nan'), float('inf'), -float('inf')])
+@pytest.mark.parametrize('field', ['input', 'output', 'cache_read'])
+def test_invalid_numeric_rates_are_ignored(value, field, tmp_path):
+    override = {'input': 2.0, 'output': 10.0, 'cache_read': 0.2}
+    override[field] = value
+    rates = tu_compat.load_rates({'claude-test-1': override}, tmp_path)
+    assert tu_compat.rate_of('claude-test-1', rates) is None
+    assert rates.warnings
+    assert rates.label == 'bundled'
+
+
+def test_zero_pricing_rates_are_valid(tmp_path):
+    rates = tu_compat.load_rates({'claude-test-1': {'input': 0, 'output': 0, 'cache_read': 0}}, tmp_path)
+    assert tu_compat.cost({'claude-test-1': {'input': 100, 'output': 50}}, rates) == 0

@@ -15,7 +15,7 @@ import socket
 import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -90,7 +90,7 @@ class _Lock:
                         self.path.unlink()
                         continue
                 except OSError:
-                    continue
+                    pass  # lock I/O failure must still reach the timeout and sleep
             except OSError:
                 return False
             if time.monotonic() >= deadline:
@@ -232,8 +232,10 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             return result
         deadline = clock() + min(cfg.deadline_seconds, MAX_DEADLINE_SECONDS)
         active_id = payload.get("session_id") if detected.kind == CLAUDE else None
+        snapshot = None
         if detected.kind == CLAUDE:
-            append(runtime, make_entry(active_id, work, env, current_branch(work), now))
+            snapshot = make_entry(active_id, work, env, current_branch(work), now)
+            append(runtime, snapshot)
         lock = _Lock(runtime / "lock")
         if not lock.acquire(lock_wait):
             result.status = "skipped"
@@ -246,6 +248,14 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         cache = DigestCache(runtime, tu_compat.vendored_sha())
         digests, parsed, cached, deadline_hit = _load_digests(sessions, active_id, cache, cfg.prompt_previews,
                                                               clock, deadline, log)
+        # Bind the Stop snapshot to its closing main request, before fork deduplication.
+        # The initial snapshot remains useful when capture is skipped, but cannot claim usage.
+        if snapshot is not None:
+            active = next((d for d in digests if d.session_id == active_id), None)
+            if active and active.requests:
+                closing = active.requests[-1]
+                append(runtime, replace(snapshot, last_request_id=closing.request_id,
+                                        last_request_ts=closing.ts))
         digests, dropped = dedup_across_sessions(digests)
         extension_ids = installed_extension_ids(project)
         by_id = {d.session_id: d for d in digests}

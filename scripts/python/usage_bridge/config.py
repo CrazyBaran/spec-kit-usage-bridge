@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -76,9 +77,9 @@ def _as_seconds(value: Any) -> float:
         raise _Invalid(f"expected a number of seconds, got {value!r}")
     try:
         seconds = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise _Invalid(f"expected a number of seconds, got {value!r}") from None
-    if seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         raise _Invalid(f"expected a positive number of seconds, got {value!r}")
     return seconds
 

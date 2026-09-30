@@ -5,7 +5,7 @@
 3. `/clear` starting a new transcript is inferred from the Claude Code documentation, not observed. Both same-file and new-file representations are handled.
 4. Compaction summarisation calls are absent from transcripts and are not costed.
 5. Costs are estimates at API list prices. Subscription plans are not billed per token; fast mode, long context, data residency and web search are not modelled. Cache-write rates follow the upstream multipliers.
-6. Timeline attribution depends on captures running. Before installation, after missed turns, or with `SPECIFY_FEATURE_NO_PERSIST`, attribution falls back to the branch. Names the resolver cannot map remain unattributed.
+6. Timeline attribution requires a capture matching the closing request. Legacy timeline entries lack this evidence. Before installation, after missed turns, or with `SPECIFY_FEATURE_NO_PERSIST`, attribution falls back to the branch. Names the resolver cannot map remain unattributed.
 7. “Other work” includes anything done in the repository while a feature is active, including unrelated chats.
 8. Committed reports identify authors. Check your organisation’s employee-monitoring rules, including GDPR and works council requirements.
 9. The session-splitting verdict is a model; its assumptions are printed under the verdict in the report.
@@ -14,7 +14,7 @@
 12. macOS is expected to work but is not tested in CI.
 13. If a request is duplicated across transcript files, the earliest session keeps it.
 14. A very large first capture can be marked `partial` until the cache is warm.
-15. One person using two machines gets two author files by design; changing git `user.name` starts a new author file.
+15. One person using two machines gets two author files by design; changing git `user.name` or `author.alias` starts a new author file. Merged reports count overlapping sessions on the same machine once using the newest snapshot and preserve all source files.
 
 ## Upstream candidates
 

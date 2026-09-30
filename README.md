@@ -91,9 +91,11 @@ request is counted once using the maximum observed token values across streamed 
 in the phase active when the agent started. Phase runs group the requests between recognized command or skill
 boundaries; ordinary prompts remain with the current phase.
 
-Feature attribution uses the capture timeline first, then the git branch, then an unattributed bucket. `git user.name`
+Feature attribution uses a capture timeline entry matching the run’s closing request first, then the git branch,
+then an unattributed bucket. A missed Stop cannot assign earlier work to a later active feature. `git user.name`
 is converted to an author slug by default; `author.alias` can override it. A short machine id keeps two computers from
-writing the same author file. The merged Markdown is rebuilt deterministically from the per-author files.
+writing the same author file. The merged Markdown is rebuilt deterministically from the per-author files. After an alias change, overlapping
+sessions on the same machine count once using the newest snapshot; historical source files remain intact.
 
 Costs are estimates at the vendored API list prices. Input, output, cache-read and cache-write usage use the upstream
 pricing table and cache multipliers; unknown models are reported as unpriced. The session-splitting verdict compares

@@ -22,7 +22,9 @@ python tools/update-vendor.py <tag>
 ```
 
 Use `--commit <sha>` only when intentionally pinning a commit instead of a tag. The tool refuses to overwrite modified
-vendored files, refreshes `VENDOR.json`, and prints the upstream changelog between refs for review. Run the contract
+vendored files, refreshes `VENDOR.json`, and prints the upstream changelog between refs for review. The manifest
+records the latest released version separately from a hash of any Unreleased section; changed unreleased notes
+are included in the review output even when the release version stays the same. Run the contract
 tests, including oracle reconciliation, after every vendor update. On upstream breakage, retain the old pin and adapt
 only in `tu_compat.py` while the issue is investigated.
 

@@ -200,13 +200,24 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     feature = dict(ordered[0]["feature"]) if ordered else {"id": "", "directory": ""}
     sessions: list[dict[str, Any]] = []
     runs: list[dict[str, Any]] = []
+    # Alias changes leave historical sources intact. Count each machine/session once,
+    # selecting its newest snapshot with deterministic content and author tie-breakers.
+    snapshots: dict[tuple[str, str], tuple[tuple[str, int, str, str], dict[str, Any]]] = {}
     for src in ordered:
         author = src["author"]["name"]
+        machine = src["author"].get("machine") or "author:" + author
         for sess in src.get("sessions", []):
-            sessions.append({**sess, "author": author})
-            for run in sess.get("runs", []):
-                if run.get("phase") != "constitution":
-                    runs.append({**run, "author": author, "session_id": sess["session_id"]})
+            key = (machine, sess["session_id"])
+            calls = sum(int(r.get("calls") or 0) for r in sess.get("runs", []))
+            rank = (sess.get("last_ts") or "", calls, dump_json(sess), author)
+            if key not in snapshots or rank > snapshots[key][0]:
+                snapshots[key] = (rank, {**sess, "author": author})
+    for key in sorted(snapshots):
+        sess = snapshots[key][1]
+        sessions.append(sess)
+        for run in sess.get("runs", []):
+            if run.get("phase") != "constitution":
+                runs.append({**run, "author": sess["author"], "session_id": sess["session_id"]})
     runs.sort(key=lambda r: (r.get("start_ts") or "", r["session_id"], r.get("label") or ""))
     counters: dict[str, int] = {}
     for run in runs:

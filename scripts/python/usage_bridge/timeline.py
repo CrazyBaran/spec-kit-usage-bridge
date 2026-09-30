@@ -27,6 +27,8 @@ class TimelineEntry:
     feature_dir: str | None
     feature_source: str
     branch: str | None
+    last_request_id: str | None = None
+    last_request_ts: str | None = None
 
 
 def relative_dir(value: str, work: Path) -> str | None:
@@ -102,6 +104,8 @@ def read(runtime: Path) -> list[TimelineEntry]:
             feature_dir if isinstance(feature_dir, str) else None,
             str(data.get("feature_source") or "none"),
             branch if isinstance(branch, str) else None,
+            data.get("last_request_id") if isinstance(data.get("last_request_id"), str) else None,
+            norm_ts(data.get("last_request_ts")),
         ))
     return entries
 
