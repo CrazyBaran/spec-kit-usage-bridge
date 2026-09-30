@@ -265,3 +265,45 @@ def test_alias_change_counts_sessions_once_preserving_every_source(tmp_path):
     assert other.read_bytes() == other_bytes
     assert len(sources) == 3
     assert merge_feature(list(reversed(sources))) == report
+
+
+def test_alias_recapture_uses_current_pricing_and_stays_byte_stable(tmp_path):
+    from usage_bridge.config import COMMITTED_FILE, CONFIG_REL, load_config
+    from usage_bridge.render import merge_feature
+    repo = make_repo(tmp_path)
+    b = SessionBuilder("s1", cwd=repo, branch="001-login")
+    b.command("/speckit-plan")
+    b.reply("r1", input=0, output=1_000_000)
+    raw = payload("s1", b.write(), repo)
+    config = repo / CONFIG_REL / COMMITTED_FILE
+    config.parent.mkdir(parents=True, exist_ok=True)
+    for alias, rate in (("old-name", 9), ("new-name", 1), ("old-name", 2)):
+        config.write_text(f"pricing:\n  overrides:\n    claude-opus-5-5:\n      input: 0\n"
+                          f"      output: {rate}\n      cache_read: 0\n", encoding="utf-8")
+        env = dict(os.environ, SPECKIT_USAGE_BRIDGE_AUTHOR_ALIAS=alias)
+        assert run_capture(raw, repo, env).status == "ok"
+        sources = pipeline.feature_sources(repo, load_config(repo, env), "specs/001-login")
+        report = merge_feature(sources)
+        assert report["totals"]["cost_usd"] == rate
+        assert report["runs"][0]["author"] == alias
+        assert report == merge_feature(list(reversed(sources)))
+        directory = repo / "specs/001-login/token-usage"
+        before = {p.name: p.read_bytes() for p in directory.glob("*.json")}
+        assert run_capture(raw, repo, env).status == "ok"
+        assert before == {p.name: p.read_bytes() for p in directory.glob("*.json")}
+
+
+def test_closing_request_without_timestamp_falls_back_to_branch(tmp_path):
+    repo = make_repo(tmp_path)
+    b = SessionBuilder("s1", cwd=repo, branch="001-login")
+    b.command("/speckit-plan")
+    b.reply("r1", output=7)
+    main = b.write()
+    rows = [json.loads(line) for line in main.read_text(encoding="utf-8").splitlines()]
+    rows[-1].pop("timestamp")
+    main.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    assert run_capture(payload("s1", main, repo), repo, dict(os.environ)).status == "ok"
+    data = json.loads((repo / "specs/001-login/token-usage" / own).read_text(encoding="utf-8"))
+    run = data["sessions"][0]["runs"][0]
+    assert run["attributed_by"] == "branch"
+    assert run["usage"]["output"] == 7

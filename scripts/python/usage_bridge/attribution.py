@@ -101,6 +101,8 @@ def _timeline_feature(run: Run, entries: Sequence[TimelineEntry]) -> str | None:
     if not run.requests:
         return None
     closing = run.requests[-1]
+    if not closing.ts:
+        return None
     for entry in entries:
         if (entry.last_request_id == closing.request_id and entry.last_request_ts == closing.ts
                 and entry.ts >= closing.ts):

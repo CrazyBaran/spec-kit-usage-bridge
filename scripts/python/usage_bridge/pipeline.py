@@ -46,6 +46,7 @@ from .render import (
     fmt_tokens,
     merge_feature,
     render_feature_md,
+    snapshot_revision,
     write_if_changed,
 )
 from .runtime import CLAUDE, CURSOR, MANUAL, detect
@@ -134,6 +135,24 @@ def feature_sources(work: Path, cfg: Config, feature_dir: str) -> list[dict[str,
         if isinstance(data, dict) and data.get("schema") == SCHEMA_FEATURE and isinstance(data.get("sessions"), list):
             sources.append(data)
     return sources
+
+
+def _set_snapshot_revisions(entries: list[dict[str, Any]], sources: list[dict[str, Any]],
+                            author: str, machine: str) -> None:
+    """Advance changed captures across aliases; keep identical captures byte-stable."""
+    previous: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for source in sources:
+        identity = source.get("author", {})
+        if identity.get("machine") == machine:
+            for session in source.get("sessions", []):
+                previous.setdefault(session["session_id"], []).append((identity.get("name"), session))
+    for entry in entries:
+        copies = previous.get(entry["session_id"], [])
+        revision = max((snapshot_revision(s) for _, s in copies), default=0)
+        unchanged = any(name == author and snapshot_revision(s) == revision
+                        and dump_json({k: v for k, v in s.items() if k != "snapshot_revision"}) == dump_json(entry)
+                        for name, s in copies)
+        entry["snapshot_revision"] = revision if unchanged else revision + 1
 
 
 def _generator(rates: tu_compat.Rates) -> dict[str, str]:
@@ -284,6 +303,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
                 previous = max(eligible, key=lambda d: (d.last_ts, d.session_id), default=None)
                 entries.append(session_entry(digest, own_runs, rates, previous, cfg.prompt_previews))
             renumber_runs(entries)
+            _set_snapshot_revisions(entries, feature_sources(work, cfg, feature_dir), author, machine)
             changed = False
             own_path = out_dir / "token-usage" / f"{author}.{machine}.json"
             if entries:

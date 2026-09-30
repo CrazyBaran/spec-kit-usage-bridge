@@ -14,7 +14,7 @@
 12. macOS is expected to work but is not tested in CI.
 13. If a request is duplicated across transcript files, the earliest session keeps it.
 14. A very large first capture can be marked `partial` until the cache is warm.
-15. One person using two machines gets two author files by design; changing git `user.name` or `author.alias` starts a new author file. Merged reports count overlapping sessions on the same machine once using the newest snapshot and preserve all source files.
+15. One person using two machines gets two author files by design; changing git `user.name` or `author.alias` starts a new author file. Merged reports count overlapping sessions on the same machine once using the newest snapshot and preserve all source files. New captures carry a session revision so pricing/configuration changes supersede older aliases even when transcript timestamps are unchanged. Legacy snapshots fall back to transcript timestamps and deterministic tie-breakers.
 
 ## Upstream candidates
 
