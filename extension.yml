@@ -16,9 +16,15 @@ requires:
     - { name: git, required: false }
 provides:
   commands:
-    - { name: speckit.usage-bridge.capture, file: commands/capture.md, description: "Refresh the token-usage audit now (also runs automatically after every turn)" }
-    - { name: speckit.usage-bridge.report,  file: commands/report.md,  description: "Token usage audit per feature / phase / session" }
-    - { name: speckit.usage-bridge.check,   file: commands/check.md,   description: "Check integration, hooks and environment" }
+    - name: speckit.usage-bridge.capture
+      file: commands/capture.md
+      description: "Refresh the token-usage audit now (also runs automatically after every turn)"
+    - name: speckit.usage-bridge.report
+      file: commands/report.md
+      description: "Token usage audit per feature / phase / session"
+    - name: speckit.usage-bridge.check
+      file: commands/check.md
+      description: "Check integration, hooks and environment"
   config:
     - { name: usage-bridge-config.yml, template: config-template.yml, description: "Usage Bridge settings", required: false }
 events:
