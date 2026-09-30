@@ -1,85 +1,136 @@
 # Usage Bridge — token-usage for Spec Kit
 
-> [!WARNING]
-> **Work in progress — not usable yet.** This repository currently contains only the design brief.
-> There is no release, no installable extension and no stable interface. Everything below describes
-> the **planned** v0.1 and may change during design.
+Usage Bridge connects [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) to
+[Spec Kit](https://github.com/github/spec-kit). It captures Claude Code transcript usage after each turn and writes a
+per-feature, per-phase token and estimated cost audit beside the feature's spec. Reports combine sessions and authors,
+include subagent usage, and remove duplicate API requests from resumed sessions.
 
-A [Spec Kit](https://github.com/github/spec-kit) extension that bridges
-[token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) into the Spec-Driven Development
-flow: an automatic, per-phase, per-feature **token and cost audit** across sessions, straight from
-agent transcripts.
+## What it answers
 
-## Why
+- How many input, output, cache-read and cache-write tokens did each Spec Kit phase use?
+- How is usage split across runs, sessions and authors?
+- Did splitting phases across sessions appear to save cost after accounting for the context loaded again?
 
-Spec Kit tells you *what* each phase produced — `constitution`, `specify`, `clarify`, `plan`,
-`tasks`, `implement`. It doesn't tell you what each phase **cost**, or whether splitting phases into
-separate sessions to keep context small actually saves tokens. Usage Bridge answers:
+The generated `token-usage.md` is the merged report. Per-author source data lives in
+`token-usage/<author>.<machine>.json`. There is no merged JSON file; `report --json` prints the merged view. Reports
+contain token counts, costs, model names, timestamps, session ids and author names. They do not contain prompt text or
+local paths unless prompt previews are explicitly enabled.
 
-- How many tokens (input, output, cache read/write) and how much estimated cost did each phase of
-  this feature consume?
-- How is that spread across sessions and re-runs, including subagents?
-- What did starting a fresh session cost in context re-loading, and did the split pay off?
+## Install
 
-## Planned v0.1
+Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and Claude Code integration. Git is recommended for
+branch and worktree attribution. Capture is automatic through the Claude `Stop` hook after the extension and Claude
+runtime events are configured.
 
-- **Automatic capture** after every agent turn via Spec Kit agent runtime events (`stop`) — a plain
-  script, no LLM calls, nothing to remember to run.
-- **Real usage from transcripts**, including prompt-cache tokens and subagent rollups.
-- **Per-feature totals across sessions**, with duplicate calls from resumed sessions removed.
-- **Feature attribution** from Spec Kit's active feature and the git branch.
-- **Report file next to the spec**: `token-usage.md` (readable) and `token-usage.json` (machine).
-- Commands:
-    - `/speckit.usage-bridge.report` — per-feature table, or `--all` for a cross-feature rollup
-    - `/speckit.usage-bridge.check` — verifies the integration, hooks and environment
-    - `/speckit.usage-bridge.capture` — runs automatically; can be invoked to force a refresh
-
-**Supported agents (planned):** Claude Code first. Cursor is designed for but not implemented in v0.1.
-
-**Out of scope for v0.1:** budgets and finance exports, run-vs-run benchmarking, dashboards,
-MCP server, Cursor/Cowork runtimes.
-
-## Relation to other extensions
-
-| Extension | Focus | Together with Usage Bridge |
-|---|---|---|
-| [token-analyzer](https://github.com/coderandhiker/spec-kit-token-analyzer) | Deliberate benchmark runs, preset/model comparison, quality scoring | Use it to benchmark; Usage Bridge measures everyday work |
-| [Cost Tracker](https://github.com/Quratulain-bilal/spec-kit-cost) | Budgets, model re-pricing, finance exports (token counts entered manually) | Usage Bridge can supply the counts |
-| [token-budget](https://github.com/tinesoft/spec-kit-token-budget) | Reducing context and artifact size | It reduces tokens; Usage Bridge shows whether it worked |
-
-## Installation (not available yet)
-
-Once the first release exists, installation is planned to be:
+Add the install-allowed catalog and install the extension in a Spec Kit project:
 
 ```bash
-specify extension add usage-bridge --from https://github.com/<org>/spec-kit-usage-bridge/archive/refs/tags/v0.1.0.zip
+specify extension catalog add --name usage-bridge --install-allowed https://github.com/CrazyBaran/spec-kit-usage-bridge/releases/latest/download/catalog.json
+specify extension add usage-bridge
 ```
 
-Requirements (planned): Spec Kit with agent runtime events, Python 3.9+, git, Claude Code integration.
+To install directly from a release archive instead, use `specify extension add usage-bridge --from <release zip URL>`.
+The catalog route is needed for `specify extension update usage-bridge`.
 
-## Status and roadmap
+After installation, check the project integration. In Bash:
 
-| Stage | Status |
-|---|---|
-| Design brief | ✅ [`docs/prompts/usage-bridge-bootstrap-prompt_1.md`](docs/prompts/usage-bridge-bootstrap-prompt_1.md) |
-| Design spec (brainstorming) | ✅ [`docs/superpowers/specs/2026-09-29-usage-bridge-v0.1-design.md`](docs/superpowers/specs/2026-09-29-usage-bridge-v0.1-design.md) |
-| Implementation plan | 📝 In review — [`docs/superpowers/plans/2026-09-29-usage-bridge-v0.1.md`](docs/superpowers/plans/2026-09-29-usage-bridge-v0.1.md) |
-| v0.1.0 implementation & tests | ⏳ Not started |
-| First release | ⏳ Not started |
+```bash
+python3 .specify/extensions/usage-bridge/scripts/python/check.py || exit 1
+```
 
-Development follows the [Superpowers](https://github.com/obra/superpowers) workflow: brief →
-brainstorming → spec (`docs/superpowers/specs/`) → plan (`docs/superpowers/plans/`) → test-driven
-implementation.
+In PowerShell:
 
-## Credits
+```powershell
+python .specify/extensions/usage-bridge/scripts/python/check.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
 
-Usage Bridge is built on [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) by
-Craig Fletcher / Wicked Sick Ltd (MIT), which does the transcript parsing, attribution and pricing.
-A pinned, unmodified copy will be bundled with the extension. Usage Bridge adds the Spec Kit
-integration: automatic capture, per-feature aggregation across sessions and reports next to specs.
+The check reports missing Python, Claude integration or runtime events as failures. Transcript discovery and git issues
+are warnings. Cursor projects receive a warning because Cursor capture is not supported in v0.1.
+
+## Commands
+
+- `/speckit-usage-bridge-report [feature-id | --all] [--json]` refreshes capture and prints a feature report or a
+  cross-feature rollup. With no feature argument it selects the active or most recently active feature.
+- `/speckit-usage-bridge-check [--verbose] [--json]` checks the integration and environment. A failure exits 1.
+- `/speckit-usage-bridge-capture` forces a manual refresh; normal capture runs after each turn. Hook capture is silent
+  and exits 0 so reporting problems do not interrupt the agent.
+
+## Configuration
+
+The installed template is `.specify/extensions/usage-bridge/usage-bridge-config.yml`. It is copied once and is not
+overwritten on extension updates. A machine-specific `usage-bridge-config.local.yml` can override settings without
+being committed. Environment variables prefixed `SPECKIT_USAGE_BRIDGE_` can also override configuration.
+
+```yaml
+enabled: true
+output:
+  dir: "{feature_dir}"
+transcripts:
+  extra_dirs: []
+pricing:
+  overrides: {}
+privacy:
+  prompt_previews: false
+capture:
+  deadline_seconds: 15
+log:
+  level: info
+```
+
+`output.dir` supports `{feature_dir}` and `{feature_id}`. Pricing overrides use USD per million tokens, for example
+`{input: 5.0, output: 25.0, cache_read: 0.5}` for a model prefix. The deadline is capped at 15 seconds within the
+30-second Spec Kit event timeout. The runtime directory is `<git common dir>/usage-bridge/` (or the extension's
+`.runtime/` fallback outside git); it holds capture state and logs, not committed reports.
+
+## How numbers are computed
+
+The pinned token-usage library supplies transcript parsing, segmentation and base pricing. Usage Bridge adds Spec Kit
+phase recognition, request-level deduplication across files, feature attribution and per-feature reports. Each API
+request is counted once using the maximum observed token values across streamed entries. Subagent requests are included
+in the phase active when the agent started. Phase runs group the requests between recognized command or skill
+boundaries; ordinary prompts remain with the current phase.
+
+Feature attribution uses the capture timeline first, then the git branch, then an unattributed bucket. `git user.name`
+is converted to an author slug by default; `author.alias` can override it. A short machine id keeps two computers from
+writing the same author file. The merged Markdown is rebuilt deterministically from the per-author files.
+
+Costs are estimates at the vendored API list prices. Input, output, cache-read and cache-write usage use the upstream
+pricing table and cache multipliers; unknown models are reported as unpriced. The session-splitting verdict compares
+observed phase costs with estimated context reload costs and prints its assumptions in the report. It is an estimate,
+not a billing statement.
+
+## Related extensions
+
+| Extension | Focus | How it relates to Usage Bridge |
+|---|---|---|
+| [token-analyzer](https://github.com/coderandhiker/spec-kit-token-analyzer) | Deliberate benchmark runs, preset/model comparison and quality scoring | Use it for benchmarks; Usage Bridge records everyday work. |
+| [Cost Tracker](https://github.com/Quratulain-bilal/spec-kit-cost) | Budgets, model repricing and finance exports with manually entered counts | Usage Bridge measures transcript counts that may inform that workflow. |
+| [token-budget](https://github.com/tinesoft/spec-kit-token-budget) | Reducing context and artifact size | It reduces token use; Usage Bridge shows observed usage. |
+
+## Limitations
+
+See [limitations and assumptions](docs/limitations.md), including transcript format uncertainty, attribution gaps,
+pricing assumptions and author data in committed reports.
+
+## Credits and affiliation
+
+**token-usage does the transcript parsing, segmenting and pricing. Usage Bridge adds Spec Kit capture, attribution and
+per-feature reports.** The extension vendors an unmodified token-usage copy at commit
+`f4078277e79c007993e0cb595bb95f924a2a8777`; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Usage Bridge is a community project and is not affiliated with GitHub, Spec Kit or Wicked Sick Ltd.
 
 ## License
 
-To be decided (MIT planned, matching token-usage).
+Usage Bridge is licensed under the MIT License; see [LICENSE](LICENSE).
+
+## Project status
+
+| Stage | Status |
+|---|---|
+| Design brief | Complete |
+| Design spec | Complete |
+| Implementation plan | Complete |
+| v0.1.0 implementation and tests | Complete |
+| First release | Prepared; not published |
