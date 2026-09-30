@@ -8,7 +8,6 @@ the feature Spec Kit worked on.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -35,16 +34,17 @@ def relative_dir(value: str, work: Path) -> str | None:
     text = value.strip().replace("\\", "/")
     if not text:
         return None
-    if text.startswith("/") or PureWindowsPath(text).is_absolute():
-        base = os.path.normcase(os.path.abspath(work))
-        target = os.path.normcase(os.path.abspath(text))
-        if target != base and not target.startswith(base.rstrip("\\/") + os.sep):
-            return None
-        text = os.path.relpath(os.path.abspath(text), os.path.abspath(work)).replace("\\", "/")
-    while text.startswith("./"):
-        text = text[2:]
-    text = text.rstrip("/")
-    return text if text and text != "." and not text.startswith("../") else None
+    windows = PureWindowsPath(text)
+    if windows.drive and not windows.is_absolute():
+        return None  # drive-relative Windows paths depend on a per-drive current directory
+    try:
+        base = Path(work).resolve()
+        target = (base / text).resolve()
+        relative = target.relative_to(base).as_posix()
+    except (OSError, ValueError, RuntimeError):
+        return None
+    return relative if relative != "." else None
+
 
 
 def active_feature(work: Path, env: Mapping[str, str]) -> tuple[str | None, str]:

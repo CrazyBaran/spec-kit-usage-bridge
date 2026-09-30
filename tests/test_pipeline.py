@@ -170,3 +170,28 @@ def test_exception_is_logged_not_raised(tmp_path, monkeypatch):
     res = run_capture(raw, repo, dict(os.environ))
     log = (repo / ".git/usage-bridge/logs/usage-bridge.log").read_text(encoding="utf-8")
     assert res.status == "error" and "ZeroDivisionError" in log
+
+
+def test_splitting_selects_latest_ended_session_not_overlapping_session(tmp_path):
+    repo = make_repo(tmp_path)
+    intervals = [('long', '09:00:00', '12:00:00'), ('ended', '09:30:00', '09:45:00'),
+                 ('overlap', '10:00:00', '10:05:00')]
+    for sid, start, end in intervals:
+        b = SessionBuilder(sid, cwd=repo, branch='001-login', start=f'2026-09-29T{start}.000Z')
+        b.command('/speckit-plan')
+        b.reply(sid + '-first', input=10, cache_read=100)
+        b.at(f'2026-09-29T{end}.000Z')
+        b.reply(sid + '-last', input=20, cache_read=200)
+        b.write()
+    assert run_capture('', repo, dict(os.environ)).status == 'ok'
+    src = json.loads((repo / 'specs/001-login/token-usage' / own).read_text(encoding='utf-8'))
+    sessions = {s['session_id']: s for s in src['sessions']}
+    assert sessions['ended']['splitting'] is None
+    assert sessions['overlap']['splitting']['previous_session_id'] == 'ended'
+    assert sessions['overlap']['splitting']['gap_seconds'] == 901
+
+
+def test_output_directory_stays_within_checkout(tmp_path):
+    from usage_bridge.config import Config
+    repo = make_repo(tmp_path)
+    assert pipeline._output_dir(repo, Config(output_dir='../outside'), 'specs/001-login') == repo / 'specs/001-login'

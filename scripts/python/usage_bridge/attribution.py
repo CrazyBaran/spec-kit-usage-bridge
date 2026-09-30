@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 
 from .digest import SessionDigest
 from .phases import Run
-from .timeline import TimelineEntry
+from .timeline import TimelineEntry, relative_dir
 
 _TIMESTAMP_TOKEN = re.compile(r"^(\d{8}-\d{6})(?:-|$)")
 _NUMBER_TOKEN = re.compile(r"^(\d{3,})(?:-|$)")
@@ -63,10 +63,14 @@ def existing_feature_dirs(work: Path, timeline: Sequence[TimelineEntry]) -> list
     found: set[str] = set()
     specs = work / "specs"
     if specs.is_dir():
-        found.update(f"specs/{child.name}" for child in specs.iterdir() if child.is_dir())
+        for child in specs.iterdir():
+            safe = relative_dir(f"specs/{child.name}", work)
+            if safe and child.is_dir():
+                found.add(safe)
     for entry in timeline:
-        if entry.feature_dir and (work / entry.feature_dir).is_dir():
-            found.add(entry.feature_dir)
+        safe = relative_dir(entry.feature_dir, work) if entry.feature_dir else None
+        if safe and (work / safe).is_dir():
+            found.add(safe)
     return sorted(found)
 
 

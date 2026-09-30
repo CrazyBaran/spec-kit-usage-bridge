@@ -6,8 +6,11 @@ them; the ``*_entry`` functions wire the real process state for the tiny entrypo
 
 from __future__ import annotations
 
+import io
 import os
+import subprocess
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -19,7 +22,7 @@ from .config import load_config
 from .paths import project_root, runtime_dir, same_path
 from .pipeline import CaptureResult, feature_sources, run_capture
 from .render import dump_json, merge_all, merge_feature, render_all_md, render_feature_md
-from .runtime import MANUAL
+from .runtime import CLAUDE, MANUAL, detect
 from .timeline import TimelineEntry, active_feature, read, relative_dir
 
 MAX_STDIN_BYTES = 1 << 20
@@ -112,11 +115,12 @@ def _default_feature(work: Path, env: Mapping[str, str], timeline: Sequence[Time
         return active
     latest: TimelineEntry | None = None
     for entry in timeline:
-        if entry.feature_dir and same_path(entry.work_root, work) and (work / entry.feature_dir).is_dir():
+        safe = relative_dir(entry.feature_dir, work) if entry.feature_dir else None
+        if safe and same_path(entry.work_root, work) and (work / safe).is_dir():
             if latest is None or entry.ts >= latest.ts:
                 latest = entry
     if latest is not None:
-        return latest.feature_dir
+        return relative_dir(latest.feature_dir, work) if latest.feature_dir else None
     if sources:
         return max(sources, key=lambda d: (_last_activity(sources[d]), d))
     return None
@@ -130,6 +134,9 @@ def report_main(argv: Sequence[str], stdout: TextIO, env: Mapping[str, str], cwd
         return 1
     feature, want_all, as_json = parsed
     result = run_capture("", Path(cwd), env)
+    if result.status in ("error", "skipped"):
+        stdout.write("Usage Bridge: refresh failed — " + _manual_line(result) + "\n")
+        return 1
     work = project_root(Path(cwd)) or Path(cwd)  # a manual run has no payload cwd, so W = P (spec §2.2)
     cfg = load_config(work, env)
     timeline = read(runtime_dir(work, work))
@@ -193,10 +200,40 @@ def _utf8(stream: TextIO) -> TextIO:
     return stream
 
 
+def _capture_worker_command() -> list[str]:
+    script = Path(__file__).resolve().parent.parent / "capture.py"
+    return [sys.executable, str(script), "--usage-bridge-worker"]
+
+
+def _supervised_hook(raw: str, cwd: Path, env: Mapping[str, str]) -> int:
+    """Bound a whole hook capture, including one blocked file or external command, in a child process."""
+    started = time.monotonic()
+    work = project_root(cwd) or cwd
+    cfg = load_config(work, env)
+    remaining = min(cfg.deadline_seconds, 15.0) - (time.monotonic() - started)
+    if remaining <= 0:
+        return 0
+    try:
+        subprocess.run(_capture_worker_command(), input=raw.encode("utf-8"), cwd=cwd, env=dict(env),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=remaining, check=False)
+    except subprocess.TimeoutExpired:
+        # subprocess.run kills and reaps the worker before returning; it cannot keep writing after the hook exits.
+        from .log import get_logger
+        from .pipeline import _write_status
+        runtime = runtime_dir(work, work)
+        get_logger(runtime, cfg.log_level).warning("hook capture exceeded %.3f seconds", cfg.deadline_seconds)
+        _write_status(runtime, datetime.now(timezone.utc),
+                      CaptureResult("hook", "error", error="TimeoutError: hook capture deadline exceeded"), 0, 0, 0)
+    return 0
+
+
 def capture_entry() -> int:
     try:
-        stdin = getattr(sys.stdin, "buffer", None)
-        return capture_main(sys.argv[1:], stdin, _utf8(sys.stdout), os.environ, Path.cwd())
+        raw = read_stdin(getattr(sys.stdin, "buffer", None))
+        cwd = Path.cwd()
+        if detect(raw).kind == CLAUDE and "--usage-bridge-worker" not in sys.argv[1:]:
+            return _supervised_hook(raw, cwd, os.environ)
+        return capture_main(sys.argv[1:], io.BytesIO(raw.encode("utf-8")), _utf8(sys.stdout), os.environ, cwd)
     except Exception:  # noqa: BLE001 - the Stop hook must exit 0
         return 0
 

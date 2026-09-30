@@ -12,3 +12,7 @@ docs/
 **/__pycache__/
 pyproject.toml
 requirements-dev.txt
+
+# Exclude Git metadata from both normal checkouts and linked worktrees.
+.git
+.idea/

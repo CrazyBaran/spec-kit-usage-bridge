@@ -11,6 +11,11 @@ LOG_REL = Path("logs") / "usage-bridge.log"
 _LEVELS = {"error": logging.ERROR, "warning": logging.WARNING, "info": logging.INFO, "debug": logging.DEBUG}
 
 
+class _SilentRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 - stdlib override
+        """Logging is best-effort; stderr is forbidden on the hook path."""
+
+
 def get_logger(runtime: Path, level: str) -> logging.Logger:
     """A file-only logger writing to ``runtime/logs/usage-bridge.log`` (1 MB, two backups)."""
     logger = logging.getLogger(LOGGER_NAME)
@@ -23,7 +28,7 @@ def get_logger(runtime: Path, level: str) -> logging.Logger:
         logger.removeHandler(handler)
         handler.close()
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.RotatingFileHandler(path, maxBytes=1_000_000, backupCount=2, encoding="utf-8",
+    handler = _SilentRotatingFileHandler(path, maxBytes=1_000_000, backupCount=2, encoding="utf-8",
                                                    delay=True)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)

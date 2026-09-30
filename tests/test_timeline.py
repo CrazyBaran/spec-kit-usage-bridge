@@ -2,6 +2,8 @@ import codecs
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from usage_bridge.timeline import TimelineEntry, active_feature, append, by_session, make_entry, read
 
 
@@ -40,3 +42,9 @@ def test_by_session_sorts(tmp_path):
     a = TimelineEntry("2026-09-29T10:05:00.000Z", "s1", "w", None, "none", None)
     b = TimelineEntry("2026-09-29T10:01:00.000Z", "s1", "w", None, "none", None)
     assert by_session([a, b])["s1"] == [b, a]
+
+
+@pytest.mark.parametrize('value', ['specs/../../outside', r'specs\..\..\outside', '../outside', 'C:outside'])
+def test_feature_paths_cannot_escape_checkout(value, tmp_path):
+    from usage_bridge.timeline import relative_dir
+    assert relative_dir(value, tmp_path / 'repo') is None

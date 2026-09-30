@@ -220,3 +220,49 @@ def test_capture_entry_without_stdin_is_a_manual_run(tmp_path, monkeypatch):
     assert capture_entry() == 0
     sys.stdout.flush()
     assert raw.getvalue().decode("utf-8").startswith("Usage Bridge: 1 feature updated — 001-login")
+
+
+@pytest.mark.parametrize('status', ['error', 'skipped'])
+@pytest.mark.parametrize('args', [['--all'], ['--all', '--json'], []])
+def test_failed_report_refresh_is_nonzero_not_zero_totals(status, args, tmp_path, monkeypatch):
+    import usage_bridge.cli as cli
+    from usage_bridge.pipeline import CaptureResult
+    repo = make_repo(tmp_path)
+    monkeypatch.setattr(cli, 'run_capture', lambda *a: CaptureResult('manual', status, error='PermissionError'))
+    out = io.StringIO()
+    assert report_main(args, out, dict(os.environ), repo) == 1
+    assert 'refresh' in out.getvalue().lower()
+    assert 'PermissionError' in out.getvalue() if status == 'error' else 'running' in out.getvalue()
+
+
+def test_hook_entry_enforces_deadline_for_one_blocking_session(tmp_path, monkeypatch, capfd):
+    import time
+
+    import usage_bridge.cli as cli
+    from usage_bridge.pipeline import CaptureResult
+    repo, raw = single_session(tmp_path)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv('SPECKIT_USAGE_BRIDGE_CAPTURE_DEADLINE_SECONDS', '0.2')
+    monkeypatch.setattr(sys, 'stdin', io.TextIOWrapper(io.BytesIO(raw.encode()), encoding='utf-8'))
+    def blocked(*args):
+        time.sleep(3)
+        return CaptureResult('hook', 'ok')
+    monkeypatch.setattr(cli, 'run_capture', blocked)
+    marker = tmp_path / 'finished'
+    code = f"import time; from pathlib import Path; print('noise'); time.sleep(3); Path({str(marker)!r}).touch()"
+    monkeypatch.setattr(cli, '_capture_worker_command', lambda: [sys.executable, '-c', code], raising=False)
+    started = time.monotonic()
+    assert capture_entry() == 0
+    assert time.monotonic() - started < 1.5
+    assert not marker.exists()
+    assert capfd.readouterr() == ('', '')
+
+
+def test_report_does_not_read_escaping_historical_timeline(tmp_path, monkeypatch):
+    from usage_bridge.cli import _default_feature
+    from usage_bridge.timeline import TimelineEntry
+    repo = make_repo(tmp_path)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    entry = TimelineEntry('2026-09-29T10:00:00.000Z', 's', str(repo), 'specs/../../outside', 'env', 'main')
+    assert _default_feature(repo, {}, [entry], {}) is None

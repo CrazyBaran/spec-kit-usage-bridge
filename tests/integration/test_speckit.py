@@ -63,6 +63,7 @@ def check(proj):
 def test_add_info_capture_remove(tmp_path):
     proj = init(tmp_path)
     install(proj)
+    assert not (proj / '.specify/extensions/usage-bridge/.git').exists()
     assert any('.specify/events.py' in c and 'speckit.usage-bridge.capture' in c for c in stop_commands(proj))
     info = run(SPECIFY + ['extension', 'info', 'usage-bridge'], cwd=proj).stdout
     assert 'speckit.usage-bridge.report' in info

@@ -113,7 +113,14 @@ def _output_dir(work: Path, cfg: Config, feature_dir: str, log: logging.Logger |
         if log:
             log.warning("invalid output.dir %r (%s); using the feature directory", cfg.output_dir, exc)
         relative = feature_dir
-    return Path(work) / relative
+    candidate = Path(work) / relative
+    try:
+        candidate.resolve().relative_to(Path(work).resolve())
+    except (OSError, ValueError, RuntimeError):
+        if log:
+            log.warning("output.dir leaves the checkout; using the feature directory")
+        candidate = Path(work) / feature_dir
+    return candidate
 
 
 def feature_sources(work: Path, cfg: Config, feature_dir: str) -> list[dict[str, Any]]:
@@ -260,11 +267,12 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             session_ids = {a.run.session_id for a in feature_runs}
             feature_digests = sorted((by_id[s] for s in session_ids), key=lambda d: (d.first_ts or "", d.session_id))
             entries = []
-            previous: SessionDigest | None = None
             for digest in feature_digests:
                 own_runs = [a for a in feature_runs if a.run.session_id == digest.session_id]
+                eligible = [d for d in feature_digests if d.last_ts and digest.first_ts
+                            and d.last_ts < digest.first_ts]
+                previous = max(eligible, key=lambda d: (d.last_ts, d.session_id), default=None)
                 entries.append(session_entry(digest, own_runs, rates, previous, cfg.prompt_previews))
-                previous = digest
             renumber_runs(entries)
             changed = False
             own_path = out_dir / "token-usage" / f"{author}.{machine}.json"
