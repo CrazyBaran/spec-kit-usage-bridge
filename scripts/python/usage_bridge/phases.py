@@ -132,7 +132,7 @@ def _branch_at(digest: SessionDigest, ts: str | None) -> str | None:
     return branch
 
 
-def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]:
+def build_runs(digest: SessionDigest, extension_ids: Sequence[str], *, include_empty: bool = False) -> list[Run]:
     runs: list[Run] = []
     current: Run | None = None
     first_request_event = digest.requests[0].event_index if digest.requests else None
@@ -197,7 +197,8 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
 
     kept: list[Run] = []
     for run in runs:
-        if digest.runtime == "claude" and not run.requests and not any(sub.requests for sub in run.subagents):
+        if (not include_empty and digest.runtime == "claude" and not run.requests
+                and not any(sub.requests for sub in run.subagents)):
             continue
         stamps = [r.ts for r in run.requests if r.ts] + [s.last_ts for s in run.subagents if s.last_ts]
         run.end_ts = max(stamps) if stamps else (run.end_ts or run.start_ts)

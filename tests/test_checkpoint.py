@@ -157,3 +157,23 @@ def test_unknown_or_disabled_session_cannot_bind(tmp_path):
     code, output = invoke(repo, extra=['--latest', '--apply'], env=env)
     assert code == 1 and 'disabled' in output
     assert load_bindings(runtime_dir(repo, repo), repo) == []
+
+
+def test_latest_claude_invocation_waits_for_its_reply(tmp_path):
+    repo = make_repo(tmp_path, features=('001-login', 'B'))
+    builder = SessionBuilder('s', repo, branch='001-login')
+    builder.command('/speckit-clarify')
+    builder.reply('earlier', output=10)
+    builder.command('/speckit-clarify')
+    builder.write()
+    code, output = invoke(repo, runtime='claude', extra=['--latest', '--apply'])
+    assert code == 0, output
+    binding = load_bindings(runtime_dir(repo, repo), repo)[0]
+    assert binding.invocation_ts == '2026-09-29T09:00:03.000Z'
+    assert not (repo / 'specs/B/token-usage.md').exists()
+    assert (repo / 'specs/001-login/token-usage.md').exists()
+    builder.reply('delayed', output=20)
+    builder.write()
+    from usage_bridge.pipeline import run_capture
+    assert run_capture('', repo, dict(os.environ)).status == 'ok'
+    assert (repo / 'specs/B/token-usage.md').exists()

@@ -50,7 +50,8 @@ def _select(options, env, work, runtime, cfg):
     digest = adapter.parse(sources[0], context)
     if context.expired():
         raise ValueError('source parsing timed out; retry checkpoint')
-    run = select_run(build_runs(digest, installed_extension_ids(work)), options.runtime, options.session_id,
+    run = select_run(build_runs(digest, installed_extension_ids(work), include_empty=True),
+                     options.runtime, options.session_id,
                      options.phase, options.invocation_ts, options.latest)
     binding = FeatureBinding(options.runtime, options.session_id, str(work), options.feature,
                              options.phase, run.start_ts)

@@ -28,7 +28,7 @@ from .adapters.base import ParseContext
 from .adapters.codex_usage import exclude_inherited_prefix
 from .adapters.cursor_ledger import remove_previews
 from .attribution import AttributedRun, attribute_runs, dedup_across_sessions, existing_feature_dirs
-from .bindings import load_bindings
+from .bindings import binding_feature_dirs, load_bindings
 from .config import MAX_DEADLINE_SECONDS, Config, load_config
 from .digest import DigestCache, SessionDigest, digest_session
 from .discovery import SessionFiles, discover, projects_roots
@@ -392,7 +392,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         timeline_entries = read(runtime)
         known = existing_feature_dirs(work, timeline_entries)
         bindings = load_bindings(runtime, work)
-        known = sorted(set(known) | {b.feature_dir for b in bindings if (work / b.feature_dir).is_dir()})
+        known = sorted(set(known) | set(binding_feature_dirs(runtime, work)))
         attributed = attribute_runs(runs, by_session(timeline_entries), known, bindings)
         rates = tu_compat.load_rates(cfg.pricing_overrides, runtime)
         for warning in rates.warnings:

@@ -64,10 +64,10 @@ def select_run(runs: Sequence[Run], runtime: str, session_id: str, phase: str,
     return matches[0]
 
 
-def _read(runtime: Path) -> list[FeatureBinding]:
+def _state(runtime: Path) -> tuple[list[FeatureBinding], set[tuple[str, str]]]:
     path = runtime / FILE
     if not path.exists():
-        return []
+        return [], set()
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
         if not isinstance(data, dict) or data.get('version') != 1 or not isinstance(data.get('bindings'), list):
@@ -75,24 +75,49 @@ def _read(runtime: Path) -> list[FeatureBinding]:
         rows = [FeatureBinding(**row) for row in data['bindings']]
         if len({row.key for row in rows}) != len(rows):
             raise ValueError('duplicate keys')
-        return rows
-    except (ValueError, TypeError, OSError) as exc:
+        destinations = {(row.work_root, row.feature_dir) for row in rows}
+        history = data.get('destinations', [])
+        if not isinstance(history, list):
+            raise ValueError('invalid destination history')
+        for item in history:
+            if not isinstance(item, dict) or set(item) != {'work_root', 'feature_dir'}:
+                raise ValueError('invalid destination history')
+            if not all(isinstance(value, str) and value.strip() for value in item.values()):
+                raise ValueError('invalid destination fields')
+            root = str(Path(item['work_root']).resolve())
+            feature = relative_dir(item['feature_dir'], Path(root))
+            if not feature:
+                raise ValueError('invalid destination feature')
+            destinations.add((root, feature))
+        return rows, destinations
+    except (ValueError, TypeError, OSError, RuntimeError) as exc:
         raise ValueError(f'invalid feature binding file: {exc}') from exc
 
 
 def load_bindings(runtime_dir: Path, work_root: Path) -> list[FeatureBinding]:
-    return [row for row in _read(Path(runtime_dir)) if same_path(row.work_root, work_root.resolve())]
+    rows, _ = _state(Path(runtime_dir))
+    return [row for row in rows if same_path(row.work_root, work_root.resolve())]
+
+
+def binding_feature_dirs(runtime_dir: Path, work_root: Path) -> list[str]:
+    """Include prior destinations so rebinding/retrying can clean obsolete local reports."""
+    _, destinations = _state(Path(runtime_dir))
+    return sorted({feature for root, feature in destinations if same_path(root, work_root.resolve())
+                   and (work_root / feature).is_dir()})
 
 
 def save_binding(runtime_dir: Path, binding: FeatureBinding) -> bool:
     """Caller holds the capture lock. Never replace corrupt state or swallow write errors."""
     runtime = Path(runtime_dir)
-    rows = _read(runtime)
+    rows, destinations = _state(runtime)
     previous = next((row for row in rows if row.key == binding.key), None)
     if previous == binding:
         return False
     rows = [row for row in rows if row.key != binding.key] + [binding]
-    data = {'version': 1, 'bindings': [asdict(row) for row in sorted(rows, key=lambda row: row.key)]}
+    destinations.add((binding.work_root, binding.feature_dir))
+    data = {'version': 1, 'bindings': [asdict(row) for row in sorted(rows, key=lambda row: row.key)],
+            'destinations': [{'work_root': root, 'feature_dir': feature}
+                             for root, feature in sorted(destinations)]}
     runtime.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix='bindings-', suffix='.tmp', dir=runtime)
     try:

@@ -48,6 +48,30 @@ def test_binding_moves_last_local_run_to_custom_feature(tmp_path):
     assert '| B |' in output.getvalue()
 
 
+def test_rebinding_custom_destination_cleans_old_report(tmp_path):
+    from usage_bridge.bindings import FeatureBinding, save_binding
+    from usage_bridge.paths import runtime_dir
+    repo = make_repo(tmp_path)
+    for name in ['A', 'B']:
+        (repo / 'features' / name).mkdir(parents=True)
+    builder = SessionBuilder('s', repo, branch='unrelated')
+    builder.command('/speckit-clarify')
+    builder.reply('r', output=10)
+    builder.write()
+    from usage_bridge.digest import digest_session
+    from usage_bridge.discovery import discover, projects_roots
+    from usage_bridge.phases import build_runs
+    source = discover([repo], projects_roots({}, dict(os.environ)), [])[0]
+    run = build_runs(digest_session(source, False), [])[0]
+    state = runtime_dir(repo, repo)
+    for name in ['A', 'B']:
+        save_binding(state, FeatureBinding('claude', 's', str(repo), 'features/' + name, 'clarify', run.start_ts))
+        assert run_capture('', repo, dict(os.environ)).status == 'ok'
+    assert not (repo / 'features/A/token-usage' / own).exists()
+    assert not (repo / 'features/A/token-usage.md').exists()
+    assert (repo / 'features/B/token-usage.md').exists()
+
+
 def payload(sid, main, cwd):
     return stop_payload(sid, main, cwd)
 
