@@ -208,7 +208,8 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     # Alias changes leave historical sources intact. Count each machine/session once,
     # selecting its newest snapshot with deterministic content and author tie-breakers.
     snapshots: dict[tuple[str, str], tuple[tuple[int, str, int, str, str], dict[str, Any]]] = {}
-    for src in ordered:
+    snapshot_sources: dict[tuple[str, str], int] = {}
+    for source_index, src in enumerate(ordered):
         author = src["author"]["name"]
         machine = src["author"].get("machine") or "author:" + author
         for sess in src.get("sessions", []):
@@ -217,6 +218,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
             rank = (snapshot_revision(sess), sess.get("last_ts") or "", calls, dump_json(sess), author)
             if key not in snapshots or rank > snapshots[key][0]:
                 snapshots[key] = (rank, {**sess, "author": author})
+                snapshot_sources[key] = source_index
     for key in sorted(snapshots):
         sess = snapshots[key][1]
         sessions.append(sess)
@@ -260,6 +262,11 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
                           "splitting": sess.get("splitting")})
     compactions = [{**c, "author": s["author"], "session_id": s["session_id"]}
                    for s in ordered_sessions for c in s.get("compactions", [])]
+    # Metadata belongs to contributing sources, just like the selected usage.
+    # Empty sources may carry a capture warning without any readable sessions.
+    retained_sources = set(snapshot_sources.values())
+    ordered = [src for index, src in enumerate(ordered)
+               if index in retained_sources or not src.get("sessions")]
     partial = any(src.get("completeness") == "partial" for src in ordered)
     stamps = [src.get("data_as_of") for src in ordered if src.get("data_as_of")]
     return {

@@ -70,3 +70,33 @@ def test_merge_alias_snapshots_prefers_newest_and_preserves_distinct_machines(ma
     assert report == merge_feature([newer, older])
     if machines[0] == machines[1] and machines[0]:
         assert report["runs"][0]["author"] == "new-name"
+
+
+@pytest.mark.parametrize("keep_unique", [False, True])
+def test_merge_metadata_comes_from_sources_with_retained_sessions(keep_unique):
+    from usage_bridge.render import merge_feature
+    old_session = {"session_id": "shared", "snapshot_revision": 1, "runs": []}
+    new_session = {"session_id": "shared", "snapshot_revision": 2, "runs": []}
+    old_sessions = [old_session]
+    if keep_unique:
+        old_sessions.append({"session_id": "unique", "runs": []})
+    old = author_file("001-a", "specs/001-a", "old", "machine", {"pricing": "old"},
+                      old_sessions, "partial", ["deadline"], ["unknown-model"])
+    new = author_file("001-a", "specs/001-a", "new", "machine", {"pricing": "new"},
+                      [new_session], "complete", [], [])
+    report = merge_feature([old, new])
+    assert report["completeness"] == ("partial" if keep_unique else "complete")
+    assert report["partial_reasons"] == (["deadline"] if keep_unique else [])
+    assert report["unpriced_models"] == (["unknown-model"] if keep_unique else [])
+    assert report["authors"] == (["new", "old"] if keep_unique else ["new"])
+    assert [g["pricing"] for g in report["generators"]] == (["new", "old"] if keep_unique else ["new"])
+    assert report == merge_feature([new, old])
+    assert old["partial_reasons"] == ["deadline"]
+
+
+def test_merge_preserves_empty_source_capture_warning():
+    from usage_bridge.render import merge_feature
+    source = author_file("001-a", "specs/001-a", "author", "machine", {}, [], "partial", ["deadline"], [])
+    report = merge_feature([source])
+    assert report["completeness"] == "partial"
+    assert report["partial_reasons"] == ["deadline"]
