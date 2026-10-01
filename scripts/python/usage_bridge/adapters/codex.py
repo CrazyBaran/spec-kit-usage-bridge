@@ -130,6 +130,8 @@ def parse_rollout(source: SourceDescriptor, context: ParseContext) -> SessionDig
     events, counters, branches = [], [], []
     model, native_turn = "unknown", None
     first_ts = last_ts = None
+    counter_event = None
+    ambiguous_interval = False
     for ordinal, entry in enumerate(entries):
         ts = norm_ts(entry.get("timestamp"))
         if ts:
@@ -162,12 +164,22 @@ def parse_rollout(source: SourceDescriptor, context: ParseContext) -> SessionDig
                                 ordinal=ordinal, native_id=native_turn))
         if kind == "event_msg" and payload.get("type") == "token_count":
             info = payload.get("info") or {}
+            phase_boundaries = [index for index, event in enumerate(events) if event.kind == "command"]
+            uncertain_interval = (len(phase_boundaries) > 1 if counter_event is None
+                                  else any(index > counter_event for index in phase_boundaries))
+            if uncertain_interval:
+                ambiguous_interval = True
+                reasons.add("phase-interval-ambiguous")
             counters.append({"usage": info.get("total_token_usage") if isinstance(info, dict) else None,
-                             "ts": ts, "model": model, "event_index": len(events) - 1})
+                             "ts": ts, "model": model,
+                             "event_index": -1 if uncertain_interval else len(events) - 1})
+            counter_event = len(events) - 1
     requests, counter_reasons = reconcile_snapshots(counters)
+    for row in requests:
+        row.request_id = "codex:" + source.session_id + ":" + row.request_id.rsplit(":", 1)[-1]
     reasons.update(counter_reasons)
-    parent = meta.get("parent_thread_id")
-    uncertain = any(row.event_index < 0 for row in requests) or bool(parent)
+    parent = meta.get("forked_from_id") or meta.get("parent_thread_id")
+    uncertain = ambiguous_interval or any(row.event_index < 0 for row in requests) or bool(parent)
     if parent:
         reasons.add("parent-attribution-unresolved")
     return SessionDigest(source.session_id, str(source.native["paths"][0]), first_ts, last_ts, last_ts,

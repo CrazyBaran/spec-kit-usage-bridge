@@ -26,6 +26,7 @@ def test_zip_layout(tmp_path):
                          'scripts/python/vendor/token_usage/LICENSE', 'commands/report.md',
                          'scripts/python/usage_bridge/adapters/codex.py',
                          'scripts/python/usage_bridge/adapters/cursor.py',
+                         'scripts/python/usage_bridge/cursor_worker.py',
                          'scripts/python/usage_bridge/data/openai-pricing.json'):
             assert 'usage-bridge/' + required in names
             assert z.read('usage-bridge/' + required) == (ROOT / required).read_bytes()

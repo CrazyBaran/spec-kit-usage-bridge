@@ -30,7 +30,7 @@ def reconcile_snapshots(entries: Sequence[Mapping[str, Any]]) -> tuple[list[Requ
             continue
         if any(current < old for current, old in zip(values, previous)):
             reasons.add("counter-reset")
-            continue
+            break  # A new epoch cannot be reconciled against the old baseline.
         delta = tuple(current - old for current, old in zip(values, previous))
         if delta[1] > delta[0]:
             reasons.add("invalid-cache-delta")
@@ -59,7 +59,7 @@ def exclude_inherited_prefix(child: SessionDigest, parent: SessionDigest) -> Ses
         return child
     prefix = 0
     for child_row, parent_row in zip(child.requests, parent.requests):
-        if child_row.request_id != parent_row.request_id:
+        if child_row.request_id.rsplit(":", 1)[-1] != parent_row.request_id.rsplit(":", 1)[-1]:
             break
         prefix += 1
     if not prefix:

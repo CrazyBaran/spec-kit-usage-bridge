@@ -22,7 +22,7 @@ from .config import load_config
 from .paths import project_root, runtime_dir, same_path
 from .pipeline import CaptureResult, feature_sources, run_capture
 from .render import dump_json, merge_all, merge_feature, render_all_md, render_feature_md
-from .runtime import CLAUDE, MANUAL, detect
+from .runtime import CLAUDE, CODEX, CURSOR, MANUAL, detect
 from .timeline import TimelineEntry, active_feature, read, relative_dir
 
 MAX_STDIN_BYTES = 1 << 20
@@ -231,7 +231,7 @@ def capture_entry() -> int:
     try:
         raw = read_stdin(getattr(sys.stdin, "buffer", None))
         cwd = Path.cwd()
-        if detect(raw).kind == CLAUDE and "--usage-bridge-worker" not in sys.argv[1:]:
+        if detect(raw).kind in (CLAUDE, CODEX, CURSOR) and "--usage-bridge-worker" not in sys.argv[1:]:
             return _supervised_hook(raw, cwd, os.environ)
         return capture_main(sys.argv[1:], io.BytesIO(raw.encode("utf-8")), _utf8(sys.stdout), os.environ, cwd)
     except Exception:  # noqa: BLE001 - the Stop hook must exit 0

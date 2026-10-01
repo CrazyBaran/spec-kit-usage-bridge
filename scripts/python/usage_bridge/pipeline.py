@@ -250,7 +250,7 @@ def load_sources(context: ParseContext, config: Config, active: tuple[str, str] 
             sources = list(adapter.discover(context, config))
             sources.sort(key=lambda source: source.identity != active)
             for source in sources:
-                key = {"v": 2, "runtime": name, "stamps": [list(s) for s in source.stamps],
+                key = {"v": 3, "runtime": name, "stamps": [list(s) for s in source.stamps],
                        "keep_previews": context.keep_previews, "vendor": tu_compat.vendored_sha()}
                 path = directory / (hashlib.sha256(repr(source.identity).encode()).hexdigest() + ".json")
                 try:
@@ -367,8 +367,10 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         for warning in diagnostics["warnings"]:
             log.warning("runtime capture: %s", warning)
         parents = {(d.runtime, d.session_id): d for d in digests}
-        digests = [exclude_inherited_prefix(d, parents[d.parent_identity])
-                   if d.parent_identity in parents else d for d in digests]
+        digests = [exclude_inherited_prefix(d, parents[d.parent_identity]) if d.parent_identity in parents
+                   else replace(d, requests=[], measurement="activity_only",
+                                reasons=sorted(set(d.reasons + ["inherited-usage-ambiguous"])))
+                   if d.runtime == "codex" and d.parent_identity else d for d in digests]
         # Bind the Stop snapshot to its closing main request, before fork deduplication.
         # The initial snapshot remains useful when capture is skipped, but cannot claim usage.
         if snapshot is not None:
@@ -416,6 +418,14 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             historical = [s for src in feature_sources(work, cfg, feature_dir)
                           if src.get("author", {}).get("name") == author
                           and src.get("author", {}).get("machine") == machine for s in src.get("sessions", [])]
+            if not cfg.prompt_previews:
+                for session in historical:
+                    removed = False
+                    for row in session.get("runs", []):
+                        removed |= "prompt_preview" in row
+                        row.pop("prompt_preview", None)
+                    if removed:
+                        session["snapshot_revision"] = snapshot_revision(session) + 1
             refreshed = {(d.runtime, d.session_id) for d in digests}
             entries.extend(s for s in historical if (s.get("runtime", "claude"), s["session_id"]) not in refreshed)
             if entries:

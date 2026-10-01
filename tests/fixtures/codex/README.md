@@ -8,3 +8,9 @@ https://github.com/openai/symphony/blob/main/elixir/docs/token_accounting.md
 
 Fixtures deliberately include incomplete/invalid variants; those must downgrade
 coverage, not be interpreted as a supported exact source format.
+
+Fork fixtures also follow `forked_from_id` in the public rollout/thread-store
+types; `parent_thread_id` represents a separate parent relationship. Both require
+explicit history evidence before inherited counters contribute. Source references:
+https://github.com/openai/codex/blob/main/codex-rs/thread-store/src/types.rs
+https://github.com/openai/codex/blob/main/codex-rs/rollout/src/recorder.rs

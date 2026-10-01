@@ -77,6 +77,9 @@ def run_summary(run: Run, rates: Rates) -> dict[str, Any]:
         if not everything:
             usage = dict.fromkeys(USAGE_KEYS)
             summary["measurement"] = "activity_only"
+        elif run.measurement != "exact":
+            usage = dict.fromkeys(USAGE_KEYS)
+            summary["measurement"] = run.measurement
         return {"calls": None, "observations": len(everything), "usage": usage,
                 "measured_usage": measured, "tokens": None if any(v is None for v in usage.values())
                 else sum(usage.values()), "cost_usd": cost,

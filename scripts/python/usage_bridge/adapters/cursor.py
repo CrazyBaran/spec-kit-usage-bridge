@@ -23,7 +23,8 @@ class CursorAdapter:
             if context.expired():
                 break
             data_root = Path(config.cursor_data_dir) if config.cursor_data_dir else None
-            candidates.extend(tu_compat.cursor_sessions(project, context.runtime_dir / "cursor-ledgers", data_root))
+            candidates.extend(tu_compat.cursor_sessions(project, context.runtime_dir / "cursor-ledgers", data_root,
+                                                       timeout=context.deadline - context.clock()))
         for folder in config.cursor_extra_dirs:
             for path in Path(folder).expanduser().glob("*.json"):
                 if context.expired():
@@ -45,16 +46,22 @@ class CursorAdapter:
             path = session.ledger_path or session.export_path or session.db_path
             try:
                 stat = path.stat()
-                stamp = (str(path), stat.st_size, stat.st_mtime_ns)
+                stamps = [(str(path), stat.st_size, stat.st_mtime_ns)]
+                if session.source == "sqlite":
+                    for suffix in ("-wal", "-shm"):
+                        sidecar = Path(str(path) + suffix)
+                        if sidecar.exists():
+                            info = sidecar.stat()
+                            stamps.append((str(sidecar), info.st_size, info.st_mtime_ns))
             except OSError:
                 continue
-            yield SourceDescriptor("cursor", session.composer_id, session.source, session, (stamp,))
+            yield SourceDescriptor("cursor", session.composer_id, session.source, session, tuple(stamps))
 
     def record(self, payload: Mapping[str, Any], context: ParseContext) -> None:
         append_event(payload, context)
 
     def parse(self, source: SourceDescriptor, context: ParseContext) -> SessionDigest:
-        parsed = tu_compat.cursor_parse(source.native)
+        parsed = tu_compat.cursor_parse(source.native, timeout=context.deadline - context.clock())
         quality = parsed.get("measurement", "activity_only")
         events, requests = [], []
         first_ts = last_ts = None
