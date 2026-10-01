@@ -180,6 +180,8 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
                     current.skills.append(event.name)
         for request in by_event.get(index, []):
             attach(request)
+        if current and event.ts:
+            current.end_ts = event.ts
 
     starts = [(run.start_ts, i) for i, run in enumerate(runs) if run.start_ts]
     for sub in digest.subagents:
@@ -198,7 +200,7 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
         if digest.runtime == "claude" and not run.requests and not any(sub.requests for sub in run.subagents):
             continue
         stamps = [r.ts for r in run.requests if r.ts] + [s.last_ts for s in run.subagents if s.last_ts]
-        run.end_ts = max(stamps) if stamps else run.start_ts
+        run.end_ts = max(stamps) if stamps else (run.end_ts or run.start_ts)
         last_main = run.requests[-1].ts if run.requests else run.end_ts
         run.last_branch = _branch_at(digest, last_main)
         run.after_clear = after_clear

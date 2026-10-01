@@ -250,7 +250,8 @@ def load_sources(context: ParseContext, config: Config, active: tuple[str, str] 
             sources = list(adapter.discover(context, config))
             sources.sort(key=lambda source: source.identity != active)
             for source in sources:
-                key = {"v": 3, "runtime": name, "stamps": [list(s) for s in source.stamps],
+                key = {"v": 4, "runtime": name, "stamps": [list(s) for s in source.stamps],
+                       "checkouts": sorted(os.path.normcase(str(root.resolve())) for root in context.checkouts),
                        "keep_previews": context.keep_previews, "vendor": tu_compat.vendored_sha()}
                 path = directory / (hashlib.sha256(repr(source.identity).encode()).hexdigest() + ".json")
                 try:
@@ -323,7 +324,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         if not cfg.enabled:
             return result
         payload = detected.payload
-        work = work_root(payload.get("cwd") if detected.kind == CLAUDE else None, project)
+        work = work_root(payload.get("cwd") if detected.kind in (CLAUDE, CODEX, CURSOR) else None, project)
         runtime = runtime_dir(work, project)
         log = get_logger(runtime, cfg.log_level)
         for warning in cfg.warnings:
@@ -380,6 +381,9 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
                 append(runtime, replace(snapshot, ts=max(snapshot.ts, closing.ts or snapshot.ts),
                                         last_request_id=closing.request_id,
                                         last_request_ts=closing.ts))
+            elif active and active.events and active.events[-1].ts:
+                event_ts = active.events[-1].ts
+                append(runtime, replace(snapshot, ts=max(snapshot.ts, event_ts), last_event_ts=event_ts))
         digests, dropped = dedup_across_sessions(digests)
         extension_ids = installed_extension_ids(project)
         by_id = {(d.runtime, d.session_id): d for d in digests}
@@ -431,7 +435,8 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             if entries:
                 state, reasons = completeness(feature_digests, deadline_hit)
                 unpriced = sorted({row.model for a in feature_runs for row in a.run.requests
-                                   if estimate(a.run.runtime, row.model, row.flat(), rates)["cost_usd"] is None})
+                                   if "unpriced-model" in estimate(a.run.runtime, row.model, row.flat(), rates,
+                                                                  row.measurement)["reasons"]})
                 document = author_file(PurePosixPath(feature_dir).name, feature_dir, author, machine, generator,
                                        entries, state, reasons, unpriced)
                 changed |= write_if_changed(own_path, dump_json(document), log)

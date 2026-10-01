@@ -278,6 +278,10 @@ def cursor_parse(source: object, timeout: float | None = None) -> dict[str, Any]
         return module().get_runtime_adapter("cursor").parse(source)
 
 
-def cursor_export(path: Path):
+def cursor_export(path: Path, *, timeout: float | None = None, checkouts=()):
+    if timeout is not None:
+        row = _cursor_bounded({"operation": "export", "path": str(path),
+                               "checkouts": [str(root) for root in checkouts]}, timeout)
+        return module().CursorSession(**row) if row else None
     with _quiet():
         return module().get_runtime_adapter("cursor").locate(str(path))

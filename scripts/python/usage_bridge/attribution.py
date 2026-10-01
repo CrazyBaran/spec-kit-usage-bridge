@@ -101,6 +101,9 @@ def resolve_branch(branch: str | None, known: Sequence[str]) -> str | None:
 
 def _timeline_feature(run: Run, entries: Sequence[TimelineEntry]) -> str | None:
     if not run.requests:
+        if run.runtime != "claude" and run.end_ts:
+            return next((entry.feature_dir for entry in entries
+                         if entry.last_event_ts == run.end_ts and entry.ts >= run.end_ts), None)
         return None
     closing = run.requests[-1]
     if not closing.ts:

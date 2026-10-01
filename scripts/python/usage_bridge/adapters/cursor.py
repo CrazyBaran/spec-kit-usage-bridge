@@ -1,7 +1,6 @@
 """Translate supported vendored Cursor segments without inventing requests."""
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -9,7 +8,6 @@ from typing import Any
 from .. import tu_compat
 from ..config import Config
 from ..digest import Event, Request, SessionDigest
-from ..paths import is_inside
 from ..timefmt import norm_ts
 from .base import Capabilities, ParseContext, SourceDescriptor
 from .codex import invocation
@@ -30,11 +28,10 @@ class CursorAdapter:
                 if context.expired():
                     break
                 try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    roots = data.get("workspace_roots") or [data.get("cwd")]
-                    if not any(isinstance(root, str) and is_inside(root, context.checkouts) for root in roots):
-                        continue
-                    candidates.append(tu_compat.cursor_export(path))
+                    source = tu_compat.cursor_export(path, timeout=context.deadline - context.clock(),
+                                                    checkouts=context.checkouts)
+                    if source:
+                        candidates.append(source)
                 except (OSError, ValueError, AttributeError):
                     continue
         seen = set()
@@ -76,7 +73,8 @@ class CursorAdapter:
             buckets = segment.get("by_model") or {"unknown": {}}
             for model, bucket in buckets.items():
                 keys = ("input", "output", "cache_read", "cache_5m", "cache_1h")
-                measured = quality != "activity_only" and any(bucket.get(k) for k in keys)
+                explicit_zero = model in parsed.get("_measured_zero", {}).get(str(index), [])
+                measured = quality != "activity_only" and (any(bucket.get(k) for k in keys) or explicit_zero)
                 values = [bucket.get(k, 0) if measured else None for k in
                           ("input", "output", "cache_read", "cache_5m", "cache_1h")]
                 requests.append(Request(f"cursor:{source.session_id}:{index}:{model}", ts, model, *values,
@@ -86,15 +84,7 @@ class CursorAdapter:
             quality = "partial"
             reasons.append("missing-segment-usage")
         path = source.native.ledger_path or source.native.export_path or source.native.db_path
-        branches = []
-        if source.native.ledger_path:
-            for line in path.read_text(encoding="utf-8").splitlines():
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                if record.get("branch"):
-                    branches.append((norm_ts(record.get("ts")), record["branch"]))
+        branches = [(norm_ts(ts), branch) for ts, branch in parsed.get("_branches", [])]
         return SessionDigest(source.session_id, str(path), first_ts, last_ts, last_ts,
                              branches=branches, events=events, requests=requests, runtime="cursor", measurement=quality,
                              reasons=reasons, capabilities=Capabilities())

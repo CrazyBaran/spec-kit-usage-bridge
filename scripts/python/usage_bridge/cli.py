@@ -231,7 +231,7 @@ def capture_entry() -> int:
     try:
         raw = read_stdin(getattr(sys.stdin, "buffer", None))
         cwd = Path.cwd()
-        if detect(raw).kind in (CLAUDE, CODEX, CURSOR) and "--usage-bridge-worker" not in sys.argv[1:]:
+        if detect(raw, probe=False).kind in (CLAUDE, CODEX, CURSOR) and "--usage-bridge-worker" not in sys.argv[1:]:
             return _supervised_hook(raw, cwd, os.environ)
         return capture_main(sys.argv[1:], io.BytesIO(raw.encode("utf-8")), _utf8(sys.stdout), os.environ, cwd)
     except Exception:  # noqa: BLE001 - the Stop hook must exit 0

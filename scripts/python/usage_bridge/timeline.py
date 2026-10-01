@@ -30,6 +30,7 @@ class TimelineEntry:
     last_request_id: str | None = None
     last_request_ts: str | None = None
     runtime: str = "claude"
+    last_event_ts: str | None = None
 
 
 def relative_dir(value: str, work: Path) -> str | None:
@@ -108,6 +109,7 @@ def read(runtime: Path) -> list[TimelineEntry]:
             data.get("last_request_id") if isinstance(data.get("last_request_id"), str) else None,
             norm_ts(data.get("last_request_ts")),
             data.get("runtime", "claude"),
+            norm_ts(data.get("last_event_ts")),
         ))
     return entries
 

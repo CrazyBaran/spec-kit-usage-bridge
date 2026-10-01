@@ -474,7 +474,8 @@ def render_all_md(report: dict[str, Any]) -> str:
         lines += ["| Feature | Sessions | Calls | Tokens | Est. $ | Phases |", "|---|--:|--:|--:|--:|---|"]
         for row in report["features"]:
             phases = ", ".join(_display(p) for p in row["phases"]) or EMPTY
-            lines.append(f"| {row['id']} | {row['sessions']} | {row['calls']} | {fmt_tokens(row['tokens'])} | "
+            calls = EMPTY if row['calls'] is None else str(row['calls'])
+            lines.append(f"| {row['id']} | {row['sessions']} | {calls} | {fmt_tokens(row['tokens'])} | "
                          f"{_cell_cost(row['cost_usd'])} | {phases} |")
         lines += ["", "## Average per phase", "", "| Phase | Features | Avg tokens | Avg est. $ |", "|---|--:|--:|--:|"]
         for row in report["phase_averages"]:
@@ -485,7 +486,8 @@ def render_all_md(report: dict[str, Any]) -> str:
     lines += ["", "## Outside features", "", "| Bucket | Sessions | Calls | Tokens | Est. $ |", "|---|--:|--:|--:|--:|"]
     for label, data in (("project (constitution, this machine only)", report["project"]),
                         ("unattributed (this machine only)", report["unattributed"])):
-        lines.append(f"| {label} | {data.get('sessions', 0)} | {data.get('calls', 0)} | "
+        calls = EMPTY if data.get('calls', 0) is None else str(data.get('calls', 0))
+        lines.append(f"| {label} | {data.get('sessions', 0)} | {calls} | "
                      f"{fmt_tokens(data.get('tokens', 0))} | {_cell_cost(data.get('cost_usd'))} |")
     lines += ["", *DISCLAIMER]
     return "\n".join(lines) + "\n"

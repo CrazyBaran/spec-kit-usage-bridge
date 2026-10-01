@@ -6,6 +6,7 @@ Native discriminators and verified integration hints keep overlapping payloads s
 from __future__ import annotations
 
 import json
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ class Detected:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
-def detect(raw: str, integration_hint: str | None = None) -> Detected:
+def detect(raw: str, integration_hint: str | None = None, *, probe: bool = True) -> Detected:
     """Classify stdin: a Claude Stop payload, a Cursor payload, no payload (manual run) or garbage."""
     text = (raw or "").lstrip("﻿").strip()
     if not text:
@@ -42,13 +43,16 @@ def detect(raw: str, integration_hint: str | None = None) -> Detected:
     if payload.get("type") == "agent-turn-complete" and isinstance(payload.get("thread-id"), str):
         return Detected(CODEX, payload)
     if isinstance(payload.get("transcript_path"), str) and isinstance(payload.get("session_id"), str):
-        try:
-            with Path(payload["transcript_path"]).open(encoding="utf-8-sig") as stream:
-                entry = json.loads(stream.readline())
-            if isinstance(entry, dict) and entry.get("type") == "session_meta":
-                return Detected(CODEX, payload)
-        except (OSError, ValueError):
-            pass
+        if probe:
+            try:
+                path = Path(payload["transcript_path"])
+                if stat.S_ISREG(path.stat().st_mode):
+                    with path.open(encoding="utf-8-sig") as stream:
+                        entry = json.loads(stream.readline(65536))
+                    if isinstance(entry, dict) and entry.get("type") == "session_meta":
+                        return Detected(CODEX, payload)
+            except (OSError, ValueError):
+                pass
         return Detected(CLAUDE, payload)
     if "conversation_id" in payload or "generation_id" in payload:
         return Detected(CURSOR, payload)
