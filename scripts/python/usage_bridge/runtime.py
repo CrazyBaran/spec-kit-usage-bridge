@@ -1,7 +1,6 @@
 """Which agent runtime sent the hook payload (spec §2.1).
 
-v0.1 captures Claude Code only; Cursor payloads are recognised so they can be logged and ignored,
-and the ``RuntimeAdapter`` shape leaves room for a Cursor implementation later (brief §5.8).
+Native discriminators and verified integration hints keep overlapping payloads separate.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ from typing import Any
 
 CLAUDE = "claude"
 CURSOR = "cursor"
+CODEX = "codex"
 MANUAL = "manual"
 UNKNOWN = "unknown"
 
@@ -22,7 +22,7 @@ class Detected:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
-def detect(raw: str) -> Detected:
+def detect(raw: str, integration_hint: str | None = None) -> Detected:
     """Classify stdin: a Claude Stop payload, a Cursor payload, no payload (manual run) or garbage."""
     text = (raw or "").lstrip("﻿").strip()
     if not text:
@@ -35,6 +35,11 @@ def detect(raw: str) -> Detected:
         return Detected(UNKNOWN)
     if not payload:
         return Detected(MANUAL)
+    hint = integration_hint or payload.get("integration") or payload.get("runtime")
+    if hint is not None:
+        return Detected(hint, payload) if hint in (CLAUDE, CURSOR, CODEX) else Detected(UNKNOWN)
+    if payload.get("type") == "agent-turn-complete" and isinstance(payload.get("thread-id"), str):
+        return Detected(CODEX, payload)
     if isinstance(payload.get("transcript_path"), str) and isinstance(payload.get("session_id"), str):
         return Detected(CLAUDE, payload)
     if "conversation_id" in payload or "generation_id" in payload:

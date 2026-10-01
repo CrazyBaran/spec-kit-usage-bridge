@@ -1,4 +1,11 @@
 enabled: true
+runtimes:
+  enabled: [claude, codex, cursor]
+  codex:
+    extra_dirs: []
+  cursor:
+    extra_dirs: []
+    data_dir: ""
 output:
   dir: "{feature_dir}"          # where token-usage.md and token-usage/ are written; placeholders {feature_dir}, {feature_id}
 transcripts:

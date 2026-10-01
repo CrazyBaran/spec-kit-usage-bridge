@@ -34,6 +34,10 @@ class Config:
     deadline_seconds: float = 15.0
     log_level: str = "info"
     warnings: list[str] = field(default_factory=list)
+    runtime_names: list[str] = field(default_factory=lambda: ["claude", "codex", "cursor"])
+    codex_extra_dirs: list[str] = field(default_factory=list)
+    cursor_extra_dirs: list[str] = field(default_factory=list)
+    cursor_data_dir: str = ""
 
 
 class _Invalid(ValueError):
@@ -100,6 +104,10 @@ _FIELDS: tuple[tuple[str, str, Callable[[Any], Any], bool], ...] = (
     ("privacy.prompt_previews", "prompt_previews", _as_bool, True),
     ("capture.deadline_seconds", "deadline_seconds", _as_seconds, True),
     ("log.level", "log_level", _as_level, True),
+    ("runtimes.enabled", "runtime_names", _as_str_list, True),
+    ("runtimes.codex.extra_dirs", "codex_extra_dirs", _as_str_list, True),
+    ("runtimes.cursor.extra_dirs", "cursor_extra_dirs", _as_str_list, True),
+    ("runtimes.cursor.data_dir", "cursor_data_dir", _as_str, True),
 )
 
 _MISSING = object()
@@ -150,4 +158,8 @@ def load_config(project: Path, env: Mapping[str, str]) -> Config:
         if from_env and variable in env:
             _apply(cfg, variable, path, attr, convert, env[variable])
     cfg.deadline_seconds = min(cfg.deadline_seconds, MAX_DEADLINE_SECONDS)
+    unsupported = set(cfg.runtime_names) - {"claude", "codex", "cursor"}
+    if unsupported:
+        cfg.warnings.append("unsupported runtimes ignored: " + ", ".join(sorted(unsupported)))
+    cfg.runtime_names = list(dict.fromkeys(name for name in cfg.runtime_names if name not in unsupported))
     return cfg
