@@ -39,21 +39,23 @@ def _synthetic(request_id: str) -> bool:
 
 def dedup_across_sessions(digests: Sequence[SessionDigest]) -> tuple[list[SessionDigest], int]:
     """Drop requests already seen in an earlier session (a forked/copied transcript keeps the original)."""
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     dropped = 0
     result: list[SessionDigest] = []
     for digest in sorted(digests, key=lambda d: (d.first_ts or "", d.session_id)):
-        requests = [r for r in digest.requests if _synthetic(r.request_id) or r.request_id not in seen]
+        requests = [r for r in digest.requests if _synthetic(r.request_id)
+                    or (digest.runtime, r.request_id) not in seen]
         subagents = []
         for sub in digest.subagents:
-            kept = [r for r in sub.requests if _synthetic(r.request_id) or r.request_id not in seen]
+            kept = [r for r in sub.requests if _synthetic(r.request_id)
+                    or (digest.runtime, r.request_id) not in seen]
             dropped += len(sub.requests) - len(kept)
             subagents.append(replace(sub, requests=kept))
         dropped += len(digest.requests) - len(requests)
         result.append(replace(digest, requests=requests, subagents=subagents))
-        seen.update(r.request_id for r in requests)
+        seen.update((digest.runtime, r.request_id) for r in requests)
         for sub in subagents:
-            seen.update(r.request_id for r in sub.requests)
+            seen.update((digest.runtime, r.request_id) for r in sub.requests)
     return result, dropped
 
 
@@ -118,7 +120,10 @@ def attribute_runs(runs: Sequence[Run], timeline_by_session: Mapping[str, list[T
         if run.phase == "constitution":
             attributed.append(AttributedRun(run, Bucket("project", None), "none"))
             continue
-        feature = _timeline_feature(run, timeline_by_session.get(run.session_id, []))
+        entries = timeline_by_session.get((run.runtime, run.session_id), [])
+        if run.runtime == "claude" and not entries:
+            entries = timeline_by_session.get(run.session_id, [])
+        feature = _timeline_feature(run, entries)
         if feature and feature in known_set:
             attributed.append(AttributedRun(run, Bucket("feature", feature), "timeline"))
             continue

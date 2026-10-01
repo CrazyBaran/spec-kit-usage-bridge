@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .adapters.base import Capabilities
 from .digest import Request, SessionDigest, SubagentDigest
 
 CORE_PHASES = ("constitution", "specify", "clarify", "plan", "checklist", "tasks", "analyze", "implement",
@@ -49,6 +50,11 @@ class Run:
     last_branch: str | None = None
     prompt_preview: str | None = None
     after_clear: bool = False
+    runtime: str = "claude"
+    measurement: str = "exact"
+    reasons: list[str] = field(default_factory=list)
+    capabilities: Capabilities = field(default_factory=lambda: Capabilities(True, True, True, True))
+    attribution_confidence: str = "exact"
 
 
 def _lead(name: str) -> str:
@@ -133,7 +139,9 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
     after_clear = False
 
     def open_run(kind: str, phase: str, label: str, ts: str | None, preview: str | None = None) -> Run:
-        run = Run(digest.session_id, kind, phase, label, ts, None, prompt_preview=preview)
+        run = Run(digest.session_id, kind, phase, label, ts, None, prompt_preview=preview,
+                  runtime=digest.runtime, measurement=digest.measurement, reasons=list(digest.reasons),
+                  capabilities=digest.capabilities, attribution_confidence=digest.attribution_confidence)
         runs.append(run)
         return run
 
@@ -187,7 +195,7 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
 
     kept: list[Run] = []
     for run in runs:
-        if not run.requests and not any(sub.requests for sub in run.subagents):
+        if digest.runtime == "claude" and not run.requests and not any(sub.requests for sub in run.subagents):
             continue
         stamps = [r.ts for r in run.requests if r.ts] + [s.last_ts for s in run.subagents if s.last_ts]
         run.end_ts = max(stamps) if stamps else run.start_ts
