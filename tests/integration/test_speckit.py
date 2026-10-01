@@ -68,6 +68,8 @@ def test_add_info_capture_remove(tmp_path):
     assert any('.specify/events.py' in c and 'speckit.usage-bridge.capture' in c for c in stop_commands(proj))
     info = run(SPECIFY + ['extension', 'info', 'usage-bridge'], cwd=proj).stdout
     assert 'speckit.usage-bridge.report' in info
+    assert 'speckit.usage-bridge.checkpoint' in info
+    assert (proj / '.claude/skills/speckit-usage-bridge-checkpoint/SKILL.md').is_file()
     manifest = yaml.safe_load((proj / '.specify/extensions/usage-bridge/extension.yml').read_text(encoding='utf-8'))
     assert manifest['events']['stop'] == {'command': 'speckit.usage-bridge.capture', 'timeout': 30}
     (proj / 'specs/001-login').mkdir(parents=True)
@@ -83,6 +85,7 @@ def test_add_info_capture_remove(tmp_path):
     run(SPECIFY + ['extension', 'remove', 'usage-bridge', '--force'], cwd=proj)
     assert not any('usage-bridge' in c for c in stop_commands(proj))
     assert not (proj / '.claude/skills/speckit-usage-bridge-report').exists()
+    assert not (proj / '.claude/skills/speckit-usage-bridge-checkpoint').exists()
 
 
 def test_check_flags_disabled_events_and_remediation_restores(tmp_path):
@@ -137,6 +140,7 @@ def test_other_runtime_install_dispatch_remove(tmp_path, integration, monkeypatc
     install(proj)
     folder = '.agents' if integration == 'codex' else '.cursor'
     assert (proj / folder / 'skills/speckit-usage-bridge-report/SKILL.md').is_file()
+    assert (proj / folder / 'skills/speckit-usage-bridge-checkpoint/SKILL.md').is_file()
     feature = proj / 'specs/001-login'
     feature.mkdir(parents=True)
     (proj / '.specify/feature.json').write_text('{"feature_directory":"specs/001-login"}', encoding='utf-8')
@@ -155,3 +159,4 @@ def test_other_runtime_install_dispatch_remove(tmp_path, integration, monkeypatc
     assert check(proj).returncode == 0
     run(SPECIFY + ['extension', 'remove', 'usage-bridge', '--force'], cwd=proj)
     assert not (proj / folder / 'skills/speckit-usage-bridge-report').exists()
+    assert not (proj / folder / 'skills/speckit-usage-bridge-checkpoint').exists()
