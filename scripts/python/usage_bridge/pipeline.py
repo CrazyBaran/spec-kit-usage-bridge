@@ -28,6 +28,7 @@ from .adapters.base import ParseContext
 from .adapters.codex_usage import exclude_inherited_prefix
 from .adapters.cursor_ledger import remove_previews
 from .attribution import AttributedRun, attribute_runs, dedup_across_sessions, existing_feature_dirs
+from .bindings import load_bindings
 from .config import MAX_DEADLINE_SECONDS, Config, load_config
 from .digest import DigestCache, SessionDigest, digest_session
 from .discovery import SessionFiles, discover, projects_roots
@@ -390,7 +391,9 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         runs = [run for d in digests for run in build_runs(d, extension_ids)]
         timeline_entries = read(runtime)
         known = existing_feature_dirs(work, timeline_entries)
-        attributed = attribute_runs(runs, by_session(timeline_entries), known)
+        bindings = load_bindings(runtime, work)
+        known = sorted(set(known) | {b.feature_dir for b in bindings if (work / b.feature_dir).is_dir()})
+        attributed = attribute_runs(runs, by_session(timeline_entries), known, bindings)
         rates = tu_compat.load_rates(cfg.pricing_overrides, runtime)
         for warning in rates.warnings:
             log.warning("pricing: %s", warning)
@@ -441,8 +444,8 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
                 document = author_file(PurePosixPath(feature_dir).name, feature_dir, author, machine, generator,
                                        entries, state, reasons, unpriced)
                 changed |= write_if_changed(own_path, dump_json(document), log)
-            elif own_path.exists() and not historical:
-                changed |= _remove(own_path, log)  # Invalid empty legacy file contains no history to retain.
+            elif own_path.exists():
+                changed |= _remove(own_path, log)  # All local history was refreshed and reassigned, or empty.
             md_path = out_dir / "token-usage.md"
             sources = feature_sources(work, cfg, feature_dir)
             if sources:

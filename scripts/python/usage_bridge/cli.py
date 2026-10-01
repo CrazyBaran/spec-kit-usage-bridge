@@ -18,6 +18,7 @@ from typing import Any, BinaryIO, TextIO
 
 from . import checks
 from .attribution import existing_feature_dirs
+from .bindings import load_bindings
 from .config import load_config
 from .paths import project_root, runtime_dir, same_path
 from .pipeline import CaptureResult, feature_sources, run_capture
@@ -141,6 +142,8 @@ def report_main(argv: Sequence[str], stdout: TextIO, env: Mapping[str, str], cwd
     cfg = load_config(work, env)
     timeline = read(runtime_dir(work, work))
     known = existing_feature_dirs(work, timeline)
+    bindings = load_bindings(runtime_dir(work, work), work)
+    known = sorted(set(known) | {b.feature_dir for b in bindings if (work / b.feature_dir).is_dir()})
     sources = {d: found for d in known if (found := feature_sources(work, cfg, d))}
     names = ", ".join(PurePosixPath(d).name for d in sources) or "none"
 

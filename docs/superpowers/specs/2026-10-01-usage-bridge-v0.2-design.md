@@ -330,3 +330,79 @@ Release preparation is in scope; publishing or an upstream PR requires a separat
 Local rollout formats and Cursor stores are evolving implementation details. Supporting
 a known fixture schema does not promise exhaustive usage across every agent version.
 The adapters must surface unsupported data rather than silently claiming full coverage.
+
+## 12. v0.2.1 amendment: continuing sessions with stale feature attribution
+
+Added at the user's request on 2026-10-01. This amendment extends the v0.2.0 baseline
+above; its checkpoint command supersedes section 6's restriction on new CLI selectors
+for v0.2.1. The patch target is v0.2.1. Original v0.2.0 requirements remain applicable
+unless explicitly extended here.
+
+### Problem and intended outcome
+
+A session may start on feature A, create feature B during `specify`, and retain A in
+its transcript branch metadata. Native capture may also be unavailable. Continuing
+that session with `speckit clarify` or a Superspec command must support recording usage
+against B using explicit invocation evidence. An `after_specify` checkpoint alone is
+insufficient: it neither repairs earlier history automatically nor establishes which
+feature a later invocation belongs to.
+
+### Requirements
+
+1. Provide an explicit checkpoint that binds one observed phase invocation to an
+   existing feature directory inside the selected checkout. Its identity includes
+   runtime, native session ID, checkout, canonical phase and invocation start timestamp.
+   Apply this binding before timeline and branch fallback. Do not require the feature
+   directory name to equal the Git branch name.
+2. Support later core phases, including `clarify`, and recognized extension command
+   phases, including `superspec.brainstorm`, with the same binding mechanism. Extension
+   phase names follow the existing command classifier rather than a Superspec-only
+   allowlist. Project-level `constitution` retains its existing semantics.
+3. Bind the phase actually observed in the source. A Superspec command may open an
+   extension phase; a helper brainstorming skill that folds into an existing phase
+   must not create a synthetic `superspec.brainstorm` phase or reclassify its usage.
+4. Resolve the feature explicitly for each invocation. A binding for `specify` must
+   not become a session-wide default for `clarify`, Superspec commands, or later work.
+   Switching features in the same session requires a new explicit binding; never
+   infer it from the previous binding, the newest transcript, or shared active-feature
+   state. Bindings must not leak between runtimes, sessions or checkouts.
+5. Permit the user to checkpoint a later invocation in an already affected session
+   without rerunning `specify` or repairing the earlier invocation first. Supply the
+   feature and verified runtime/session identity explicitly; Codex may use the shell's
+   `CODEX_THREAD_ID`. Missing or ambiguous identity produces an actionable diagnostic
+   without guessing. Workflow diagnostics must not block specification work.
+6. Keep historical repair separate from ongoing workflow capture. Manual checkpoint
+   use previews the selected invocation and destination by default; `--apply` is
+   required to persist it. Repeated matching phases require an invocation timestamp
+   unless the caller explicitly requests `--latest`. Repairing one invocation must
+   not rewrite unrelated earlier or later runs, raw transcripts, or other authors'
+   source files.
+7. Persist bindings in private Git runtime state under the capture lock. Repeated
+   checkpoint/native captures are idempotent. The invocation start remains the anchor
+   when delayed usage changes its end timestamp. Preserve measured totals and missing
+   counts; a feature binding cannot resolve ambiguous token intervals or manufacture
+   usage.
+8. Keep `after_specify` as an initial workflow checkpoint and document the explicit
+   checkpoint route for later core and extension phases. Do not claim that later
+   phases capture automatically merely because a hook is registered or `specify`
+   was bound. Claude, Codex and Cursor share the binding contract while retaining
+   their existing source capabilities and native delivery limitations.
+
+### Acceptance criteria
+
+- A Codex session whose branch metadata still identifies A can bind an observed
+  `clarify` invocation to B without binding or rerunning its earlier `specify` run.
+- An observed `superspec.brainstorm` command can be bound to B. A helper brainstorming
+  skill inside `clarify` remains part of `clarify` and cannot be selected as a separate
+  extension invocation.
+- After binding an invocation to B, switching to C and explicitly binding a later
+  invocation leaves B's assignment unchanged. An unbound invocation does not inherit B
+  or C; existing evidence-based attribution or unattributed status remains in effect.
+- Repeated `clarify` or Superspec invocations reject ambiguous selection. Selecting
+  one by timestamp changes only that invocation; an explicit latest selector chooses
+  only the latest matching invocation.
+- Preview changes neither bindings nor feature reports. Applying twice and refreshing
+  after delayed counters retain the assignment without duplicating measured usage.
+- Equivalent invocation isolation is verified for Claude and Cursor fixtures, with
+  unavailable measurements remaining unavailable and native delivery claims limited
+  to verified runtime behavior.

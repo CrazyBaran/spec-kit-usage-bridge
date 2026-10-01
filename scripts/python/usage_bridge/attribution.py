@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
 from .digest import SessionDigest
+from .bindings import FeatureBinding
 from .phases import Run
 from .timeline import TimelineEntry, relative_dir
 
@@ -116,12 +117,18 @@ def _timeline_feature(run: Run, entries: Sequence[TimelineEntry]) -> str | None:
 
 
 def attribute_runs(runs: Sequence[Run], timeline_by_session: Mapping[str, list[TimelineEntry]],
-                   known: Sequence[str]) -> list[AttributedRun]:
+                   known: Sequence[str], bindings: Sequence[FeatureBinding] = ()) -> list[AttributedRun]:
     known_set = set(known)
     attributed: list[AttributedRun] = []
     for run in runs:
         if run.phase == "constitution":
             attributed.append(AttributedRun(run, Bucket("project", None), "none"))
+            continue
+        bound = [b.feature_dir for b in bindings
+                 if (b.runtime, b.session_id, b.phase, b.invocation_ts)
+                 == (run.runtime, run.session_id, run.phase, run.start_ts)]
+        if len(bound) == 1 and bound[0] in known_set:
+            attributed.append(AttributedRun(run, Bucket("feature", bound[0]), "binding"))
             continue
         entries = timeline_by_session.get((run.runtime, run.session_id), [])
         if run.runtime == "claude" and not entries:
