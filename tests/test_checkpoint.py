@@ -177,3 +177,41 @@ def test_latest_claude_invocation_waits_for_its_reply(tmp_path):
     from usage_bridge.pipeline import run_capture
     assert run_capture('', repo, dict(os.environ)).status == 'ok'
     assert (repo / 'specs/B/token-usage.md').exists()
+
+
+@pytest.mark.parametrize('selector', [['--latest'], ['--invocation-ts', '2026-10-01T08:00:02.000Z']])
+@pytest.mark.parametrize('workflow', [False, True])
+def test_conflicting_codex_copies_cannot_bind_shared_prefix(tmp_path, selector, workflow):
+    from usage_bridge.pipeline import run_capture
+    repo = make_repo(tmp_path, features=('001-login', 'B'))
+    home = Path(os.environ['CODEX_HOME'])
+    prefix = [turn(), prompt('/speckit.clarify'), tokens(100, 0, 10)]
+    for archived, suffix in [(False, 'first'), (True, 'second')]:
+        later = prompt('/speckit.clarify ' + suffix)
+        later['timestamp'] = '2026-10-01T09:00:02Z'
+        write_rollout(home, repo, events=[*prefix, later], archived=archived)
+    # Existing reports must remain unchanged, as well as any private binding file.
+    assert run_capture('', repo, dict(os.environ)).status in ('ok', 'partial')
+    before = {str(path): path.read_bytes() for path in repo.glob('specs/**/token-usage*') if path.is_file()}
+    before.update({str(path): path.read_bytes() for path in repo.glob('specs/*/token-usage/*.json')})
+    extra = [*selector, '--apply', *(['--workflow'] if workflow else [])]
+    code, output = invoke(repo, extra=extra)
+    assert code == (0 if workflow else 1), output
+    assert 'conflicting-session-copies' in output
+    assert load_bindings(runtime_dir(repo, repo), repo) == []
+    after = {str(path): path.read_bytes() for path in repo.glob('specs/**/token-usage*') if path.is_file()}
+    after.update({str(path): path.read_bytes() for path in repo.glob('specs/*/token-usage/*.json')})
+    assert after == before
+
+
+def test_consistent_codex_copies_still_select_latest(tmp_path):
+    repo = make_repo(tmp_path, features=('001-login', 'B'))
+    home = Path(os.environ['CODEX_HOME'])
+    prefix = [turn(), prompt('/speckit.clarify'), tokens(100, 0, 10)]
+    write_rollout(home, repo, events=prefix, archived=True)
+    later = prompt('/speckit.clarify')
+    later['timestamp'] = '2026-10-01T09:00:02Z'
+    write_rollout(home, repo, events=[*prefix, later])
+    code, output = invoke(repo, extra=['--latest', '--apply'])
+    assert code == 0, output
+    assert load_bindings(runtime_dir(repo, repo), repo)[0].invocation_ts == '2026-10-01T09:00:02.000Z'

@@ -45,6 +45,11 @@ These are candidates for discussion with token-usage upstream and are not commit
 
 ## v0.2.1 invocation checkpoints
 
+Conflicting Codex session copies make checkpoint selection unavailable, including
+selection by an explicit timestamp. Resolve the local history conflict first.
+The diagnostic leaves bindings and feature reports unchanged; workflow mode warns
+without blocking specification work. Consistent copied/archived prefixes remain supported.
+
 Explicit bindings override stale branch attribution only for the selected observed
 invocation. They neither resolve ambiguous token intervals nor recover cloud-only
 history. Later core/extension phases require another explicit checkpoint, and

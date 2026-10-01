@@ -50,6 +50,9 @@ def _select(options, env, work, runtime, cfg):
     digest = adapter.parse(sources[0], context)
     if context.expired():
         raise ValueError('source parsing timed out; retry checkpoint')
+    if 'conflicting-session-copies' in digest.reasons:
+        raise ValueError('conflicting-session-copies: invocation history is ambiguous; '
+                         'resolve the conflicting local session copies before checkpointing')
     run = select_run(build_runs(digest, installed_extension_ids(work), include_empty=True),
                      options.runtime, options.session_id,
                      options.phase, options.invocation_ts, options.latest)
