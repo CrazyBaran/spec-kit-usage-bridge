@@ -1,7 +1,7 @@
 # Usage Bridge v0.2: Codex and Cursor support
 
 Date: 2026-10-01
-Status: Proposed written spec; architecture approved, written-spec review pending.
+Status: Written spec approved by the user on 2026-10-01; implementation-plan review pending.
 Target release: v0.2.0
 
 ## 1. Intent and agreed scope
