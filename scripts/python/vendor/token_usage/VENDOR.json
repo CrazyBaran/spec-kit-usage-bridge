@@ -1,0 +1,11 @@
+{
+  "repo": "https://github.com/Wicked-Sick-Ltd/token-usage",
+  "ref": "main",
+  "commit": "f4078277e79c007993e0cb595bb95f924a2a8777",
+  "upstream_version": "0.6.1+unreleased-0.7",
+  "files": {
+    "scripts/token_usage.py": "sha256:511de1f9dc5dddc7d7427bce99630b91ae883795c42cbb872789267e91aeee06",
+    "data/pricing.json": "sha256:50a265c9931dc9d7afaa1b92adf0e5f5615900d05d22cb0467c8e42740137326",
+    "LICENSE": "sha256:42cf66e2d1d0db25ac294f733c66466022c22bdbc9229518808603edcb01df93"
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "schema": "usage-bridge/feature-usage",
+  "schema_version": 1,
+  "feature": {"id": "001-user-login", "directory": "specs/001-user-login"},
+  "author": {"name": "jakub", "machine": "a1b2c3"},
+  "generator": {"usage_bridge": "0.1.0", "token_usage": "main@f407827", "pricing": "bundled",
+                "pricing_sha256": "9c1f7a42d0e8b6c3a5f19e2d4b7c8a6e1f3d5b9a7c2e4f6081a3b5c7d9e1f2a4"},
+  "runtime": "claude",
+  "completeness": "complete",
+  "partial_reasons": [],
+  "data_as_of": "2026-10-01T14:20:05.000Z",
+  "unpriced_models": [],
+  "sessions": [
+    {
+      "session_id": "3f9a2c1e-5d1b-4c8e-9a7f-0b1c2d3e4f50",
+      "first_ts": "2026-09-29T09:05:00.000Z",
+      "last_ts": "2026-09-29T10:40:00.000Z",
+      "after_clear": false,
+      "dominant_model": "claude-opus-5-5",
+      "main_calls": 95,
+      "final_context_tokens": 180412,
+      "repriming": {"tokens": 26296, "cost_usd": 0.164},
+      "splitting": null,
+      "compactions": [],
+      "runs": [
+        {
+          "phase": "other", "kind": "other", "label": "(no command)", "run": 1,
+          "start_ts": "2026-09-29T09:05:00.000Z", "end_ts": "2026-09-29T09:09:00.000Z", "attributed_by": "timeline",
+          "calls": 9,
+          "usage": {"input": 5000, "output": 2000, "cache_read": 310000, "cache_write_5m": 12000, "cache_write_1h": 0},
+          "cost_usd": 0.21,
+          "models": {"claude-opus-5-5": {"calls": 9, "usage": {"input": 5000, "output": 2000, "cache_read": 310000,
+                                                               "cache_write_5m": 12000, "cache_write_1h": 0},
+                                         "cost_usd": 0.21}},
+          "subagents": {"count": 0, "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_write_5m": 0,
+                                              "cache_write_1h": 0}, "cost_usd": null},
+          "skills": []
+        },
+        {
+          "phase": "specify", "kind": "core", "label": "/speckit-specify", "run": 1,
+          "start_ts": "2026-09-29T09:10:00.000Z", "end_ts": "2026-09-29T09:40:00.000Z", "attributed_by": "timeline",
+          "calls": 38,
+          "usage": {"input": 41000, "output": 18000, "cache_read": 2900000, "cache_write_5m": 96000, "cache_write_1h": 0},
+          "cost_usd": 2.31,
+          "models": {"claude-opus-5-5": {"calls": 38, "usage": {"input": 41000, "output": 18000, "cache_read": 2900000,
+                                                                "cache_write_5m": 96000, "cache_write_1h": 0},
+                                         "cost_usd": 2.31}},
+          "subagents": {"count": 0, "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_write_5m": 0,
+                                              "cache_write_1h": 0}, "cost_usd": null},
+          "skills": ["speckit-git-feature"]
+        },
+        {
+          "phase": "plan", "kind": "core", "label": "/speckit-plan", "run": 1,
+          "start_ts": "2026-09-29T10:02:00.000Z", "end_ts": "2026-09-29T10:40:00.000Z", "attributed_by": "timeline",
+          "calls": 52,
+          "usage": {"input": 60000, "output": 31000, "cache_read": 5100000, "cache_write_5m": 140000, "cache_write_1h": 0},
+          "cost_usd": 3.9,
+          "models": {"claude-opus-5-5": {"calls": 52, "usage": {"input": 60000, "output": 31000, "cache_read": 5100000,
+                                                                "cache_write_5m": 140000, "cache_write_1h": 0},
+                                         "cost_usd": 3.9}},
+          "subagents": {"count": 2, "usage": {"input": 4000, "output": 3000, "cache_read": 200000, "cache_write_5m": 9000,
+                                              "cache_write_1h": 0}, "cost_usd": 0.31},
+          "skills": ["speckit-git-commit"]
+        }
+      ]
+    },
+    {
+      "session_id": "9c2e11f0-7a3b-4d2c-8e1f-2a3b4c5d6e70",
+      "first_ts": "2026-10-01T13:00:00.000Z",
+      "last_ts": "2026-10-01T14:20:05.000Z",
+      "after_clear": false,
+      "dominant_model": "claude-opus-5-5",
+      "main_calls": 38,
+      "final_context_tokens": 212044,
+      "repriming": {"tokens": 31012, "cost_usd": 0.186},
+      "splitting": {"previous_session_id": "3f9a2c1e-5d1b-4c8e-9a7f-0b1c2d3e4f50", "carried_tokens": 180412,
+                    "calls": 38, "gap_seconds": 181200, "avoided_cost_usd": 5.086, "net_usd": 4.9},
+      "compactions": [
+        {"ts": "2026-10-01T13:50:00.000Z", "trigger": "auto", "pre_tokens": 967128, "post_tokens": 24252,
+         "reload_tokens": 43942, "reload_cost_usd": 0.276}
+      ],
+      "runs": [
+        {
+          "phase": "implement", "kind": "core", "label": "/speckit-implement", "run": 1,
+          "start_ts": "2026-10-01T13:00:00.000Z", "end_ts": "2026-10-01T14:20:00.000Z", "attributed_by": "branch",
+          "calls": 44,
+          "usage": {"input": 35000, "output": 40000, "cache_read": 6200000, "cache_write_5m": 150000, "cache_write_1h": 0},
+          "cost_usd": 4.1,
+          "models": {"claude-opus-5-5": {"calls": 44, "usage": {"input": 35000, "output": 40000, "cache_read": 6200000,
+                                                                "cache_write_5m": 150000, "cache_write_1h": 0},
+                                         "cost_usd": 4.1}},
+          "subagents": {"count": 3, "usage": {"input": 9001, "output": 6000, "cache_read": 300000, "cache_write_5m": 12000,
+                                              "cache_write_1h": 0}, "cost_usd": 0.62},
+          "skills": ["speckit-git-commit"]
+        }
+      ]
+    }
+  ]
+}

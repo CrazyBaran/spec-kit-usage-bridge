@@ -1,0 +1,102 @@
+import os
+
+import pytest
+
+from usage_bridge.render import author_file, dump_json, fmt_cost, fmt_tokens, fmt_ts, write_if_changed
+
+
+@pytest.mark.parametrize("n,s", [(0, "0"), (999, "999"), (1000, "1.0k"), (4149, "4.1k"), (5000, "5.0k"),
+                                 (10000, "10k"), (212044, "212k"), (1_000_000, "1.0M"), (17_062_000, "17.1M")])
+def test_fmt_tokens(n, s):
+    assert fmt_tokens(n) == s
+
+
+def test_fmt_cost_and_ts():
+    assert (fmt_cost(3.9), fmt_cost(None), fmt_cost(0.004)) == ("$3.90", "—", "$0.00")
+    assert fmt_ts("2026-10-01T13:00:02.000Z") == "10-01 13:00"
+
+
+def test_dump_json_is_stable_lf_and_rounded():
+    assert dump_json({"b": 1.23456789, "a": "ł"}) == '{\n  "b": 1.234568,\n  "a": "ł"\n}\n'
+
+
+def test_author_file_shape_and_sorting():
+    s1 = {"session_id": "b", "first_ts": "2026-09-30T08:00:00.000Z", "last_ts": "2026-09-30T09:00:00.000Z"}
+    s0 = {"session_id": "a", "first_ts": "2026-09-29T08:00:00.000Z", "last_ts": "2026-09-29T09:00:00.000Z"}
+    f = author_file("001-a", "specs/001-a", "jakub", "a1b2c3", {"usage_bridge": "0.1.0"}, [s1, s0], "complete", [], [])
+    assert list(f) == ["schema", "schema_version", "feature", "author", "generator", "runtime", "completeness",
+                       "partial_reasons", "data_as_of", "unpriced_models", "sessions"]
+    assert (f["schema"], f["schema_version"], f["runtime"]) == ("usage-bridge/feature-usage", 1, "claude")
+    assert [s["session_id"] for s in f["sessions"]] == ["a", "b"] and f["data_as_of"] == "2026-09-30T09:00:00.000Z"
+    assert f["feature"] == {"id": "001-a", "directory": "specs/001-a"} and f["author"] == {"name": "jakub",
+                                                                                           "machine": "a1b2c3"}
+
+
+def test_write_if_changed(tmp_path):
+    p = tmp_path / "d" / "f.md"
+    assert write_if_changed(p, "a\nb\n") is True and p.read_bytes() == b"a\nb\n"
+    assert write_if_changed(p, "a\nb\n") is False
+    p.write_bytes(b"a\r\nb\r\n")
+    before = p.stat().st_mtime_ns
+    assert write_if_changed(p, "a\nb\n") is False and p.stat().st_mtime_ns == before
+    assert write_if_changed(p, "c\n") is True
+
+
+def test_write_if_changed_keeps_original_on_failure(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    out.mkdir()
+    p = out / "f.md"
+    p.write_text("old\n", encoding="utf-8")
+
+    def locked(*args):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(os, "replace", locked)
+    assert write_if_changed(p, "new\n") is False
+    assert p.read_text(encoding="utf-8") == "old\n" and list(out.iterdir()) == [p]
+
+
+@pytest.mark.parametrize("machines,expected", [(("same", "same"), 2), (("one", "two"), 3), (("", ""), 3)])
+def test_merge_alias_snapshots_prefers_newest_and_preserves_distinct_machines(machines, expected):
+    from usage_bridge.render import merge_feature
+    def source(author, machine, stamp, calls):
+        session = {"session_id": "s1", "first_ts": "2026-09-29T09:00:00.000Z", "last_ts": stamp,
+                   "runs": [{"phase": "plan", "calls": calls, "start_ts": "2026-09-29T09:00:00.000Z"}]}
+        return author_file("001-a", "specs/001-a", author, machine, {}, [session], "complete", [], [])
+    older = source("old-name", machines[0], "2026-09-29T09:01:00.000Z", 1)
+    newer = source("new-name", machines[1], "2026-09-29T09:02:00.000Z", 2)
+    report = merge_feature([older, newer])
+    assert report["totals"]["calls"] == expected
+    assert report == merge_feature([newer, older])
+    if machines[0] == machines[1] and machines[0]:
+        assert report["runs"][0]["author"] == "new-name"
+
+
+@pytest.mark.parametrize("keep_unique", [False, True])
+def test_merge_metadata_comes_from_sources_with_retained_sessions(keep_unique):
+    from usage_bridge.render import merge_feature
+    old_session = {"session_id": "shared", "snapshot_revision": 1, "runs": []}
+    new_session = {"session_id": "shared", "snapshot_revision": 2, "runs": []}
+    old_sessions = [old_session]
+    if keep_unique:
+        old_sessions.append({"session_id": "unique", "runs": []})
+    old = author_file("001-a", "specs/001-a", "old", "machine", {"pricing": "old"},
+                      old_sessions, "partial", ["deadline"], ["unknown-model"])
+    new = author_file("001-a", "specs/001-a", "new", "machine", {"pricing": "new"},
+                      [new_session], "complete", [], [])
+    report = merge_feature([old, new])
+    assert report["completeness"] == ("partial" if keep_unique else "complete")
+    assert report["partial_reasons"] == (["deadline"] if keep_unique else [])
+    assert report["unpriced_models"] == (["unknown-model"] if keep_unique else [])
+    assert report["authors"] == (["new", "old"] if keep_unique else ["new"])
+    assert [g["pricing"] for g in report["generators"]] == (["new", "old"] if keep_unique else ["new"])
+    assert report == merge_feature([new, old])
+    assert old["partial_reasons"] == ["deadline"]
+
+
+def test_merge_preserves_empty_source_capture_warning():
+    from usage_bridge.render import merge_feature
+    source = author_file("001-a", "specs/001-a", "author", "machine", {}, [], "partial", ["deadline"], [])
+    report = merge_feature([source])
+    assert report["completeness"] == "partial"
+    assert report["partial_reasons"] == ["deadline"]

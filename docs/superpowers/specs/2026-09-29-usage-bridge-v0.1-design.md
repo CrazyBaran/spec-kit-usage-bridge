@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft for review — brainstorming completed 2026-09-29 |
+| Status | Approved 2026-09-29 — implementation plan: [`docs/superpowers/plans/2026-09-29-usage-bridge-v0.1.md`](../plans/2026-09-29-usage-bridge-v0.1.md) |
 | Extension | `usage-bridge` · "Usage Bridge — token-usage for Spec Kit" · v0.1.0 |
 | Brief | [`docs/prompts/usage-bridge-bootstrap-prompt_1.md`](../../prompts/usage-bridge-bootstrap-prompt_1.md) |
 | Verified against | spec-kit main `8d3f64cd` (1.0.13.dev0; tags v1.0.11, v1.0.12) · token-usage main `f407827` (plugin 0.6.1 + unreleased 0.7) and tag `v0.6.0` · local Claude Code transcripts from versions 2.1.177–2.1.284 (metadata-only survey) · Claude Code documentation |

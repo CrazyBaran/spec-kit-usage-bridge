@@ -1,0 +1,42 @@
+{
+  "schema": "usage-bridge/feature-usage",
+  "schema_version": 1,
+  "feature": {"id": "001-user-login", "directory": "specs/001-user-login"},
+  "author": {"name": "anna", "machine": "d4e5f6"},
+  "generator": {"usage_bridge": "0.1.0", "token_usage": "main@f407827", "pricing": "bundled",
+                "pricing_sha256": "9c1f7a42d0e8b6c3a5f19e2d4b7c8a6e1f3d5b9a7c2e4f6081a3b5c7d9e1f2a4"},
+  "runtime": "claude",
+  "completeness": "complete",
+  "partial_reasons": [],
+  "data_as_of": "2026-09-30T08:44:00.000Z",
+  "unpriced_models": [],
+  "sessions": [
+    {
+      "session_id": "b71d04aa-2c9e-4f61-b3a8-5d7e9f1a2b3c",
+      "first_ts": "2026-09-30T08:15:00.000Z",
+      "last_ts": "2026-09-30T08:44:00.000Z",
+      "after_clear": false,
+      "dominant_model": "claude-sonnet-5-5",
+      "main_calls": 27,
+      "final_context_tokens": 71000,
+      "repriming": {"tokens": 54000, "cost_usd": 0.2},
+      "splitting": null,
+      "compactions": [],
+      "runs": [
+        {
+          "phase": "tasks", "kind": "core", "label": "/speckit-tasks", "run": 1,
+          "start_ts": "2026-09-30T08:15:00.000Z", "end_ts": "2026-09-30T08:44:00.000Z", "attributed_by": "timeline",
+          "calls": 27,
+          "usage": {"input": 22000, "output": 12000, "cache_read": 1800000, "cache_write_5m": 88000, "cache_write_1h": 0},
+          "cost_usd": 1.62,
+          "models": {"claude-sonnet-5-5": {"calls": 27, "usage": {"input": 22000, "output": 12000, "cache_read": 1800000,
+                                                                  "cache_write_5m": 88000, "cache_write_1h": 0},
+                                           "cost_usd": 1.62}},
+          "subagents": {"count": 0, "usage": {"input": 0, "output": 0, "cache_read": 0, "cache_write_5m": 0,
+                                              "cache_write_1h": 0}, "cost_usd": null},
+          "skills": []
+        }
+      ]
+    }
+  ]
+}
