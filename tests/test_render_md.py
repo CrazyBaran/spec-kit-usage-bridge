@@ -88,7 +88,7 @@ def test_unpriced_models_footnote():
 
 def test_merge_feature_totals():
     rep = merge_feature(sources())
-    assert (rep["schema"], rep["schema_version"]) == ("usage-bridge/feature-report", 1)
+    assert (rep["schema"], rep["schema_version"]) == ("usage-bridge/feature-report", 2)
     assert rep["totals"]["tokens"] == sum(p["tokens"] for p in rep["phases"])
     assert all("author" in r for r in rep["runs"]) and rep["totals"]["sessions"] == 3
 

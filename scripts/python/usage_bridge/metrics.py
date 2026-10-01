@@ -10,6 +10,7 @@ from .attribution import AttributedRun
 from .digest import Request, SessionDigest
 from .measurement import summarize
 from .phases import Run
+from .pricing import estimate
 from .timefmt import parse_ts
 from .tu_compat import Rates
 
@@ -68,12 +69,18 @@ def run_summary(run: Run, rates: Rates) -> dict[str, Any]:
         summary = summarize(everything)
         usage = dict(zip(USAGE_KEYS, (summary["usage"][key] for key in _VENDOR_KEYS)))
         measured = dict(zip(USAGE_KEYS, (summary["measured_usage"][key] for key in _VENDOR_KEYS)))
+        estimates = [estimate(run.runtime, row.model, row.flat(), rates, row.measurement) for row in everything]
+        known_costs = [item["known_cost_usd"] for item in estimates if item["known_cost_usd"] is not None]
+        complete_costs = [item["cost_usd"] for item in estimates]
+        cost = (sum(complete_costs) if complete_costs and all(v is not None for v in complete_costs)
+                and run.measurement == "exact" else None)
         if not everything:
             usage = dict.fromkeys(USAGE_KEYS)
             summary["measurement"] = "activity_only"
         return {"calls": None, "observations": len(everything), "usage": usage,
                 "measured_usage": measured, "tokens": None if any(v is None for v in usage.values())
-                else sum(usage.values()), "cost_usd": None, "known_cost_usd": None,
+                else sum(usage.values()), "cost_usd": cost,
+                "known_cost_usd": sum(known_costs) if known_costs else None,
                 "measurement": summary["measurement"], "reasons": sorted(set(summary["reasons"] + run.reasons)),
                 "models": {}, "subagents": {"count": None, "usage": dict.fromkeys(USAGE_KEYS), "cost_usd": None},
                 "skills": list(run.skills)}

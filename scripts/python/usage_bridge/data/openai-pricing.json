@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "retrieved": "2026-10-01",
+  "currency": "USD",
+  "unit": "million tokens",
+  "models": {
+    "gpt-5.2-codex": {"input": 1.75, "output": 14.0, "cache_read": 0.175},
+    "gpt-5.3-codex": {"input": 1.75, "output": 14.0, "cache_read": 0.175}
+  },
+  "sources": [
+    "https://developers.openai.com/api/docs/models/gpt-5.2-codex",
+    "https://developers.openai.com/api/docs/models/gpt-5.3-codex"
+  ]
+}
