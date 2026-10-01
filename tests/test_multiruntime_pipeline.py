@@ -37,6 +37,15 @@ def test_cursor_hook_activity_capture_is_silent_mode(tmp_path):
     assert data["sessions"][0]["runs"][0]["usage"]["input"] is None
 
 
+def test_cursor_prompt_capture_on_main_uses_active_feature(tmp_path):
+    repo = make_repo(tmp_path, branch="main")
+    (repo / ".specify/feature.json").write_text('{"feature_directory":"specs/001-login"}', encoding="utf-8")
+    payload = {"conversation_id": "c", "generation_id": "g", "cwd": str(repo),
+               "workspace_roots": [str(repo)], "hook_event_name": "beforeSubmitPrompt", "prompt": "/speckit.plan"}
+    result = run_capture(json.dumps(payload), repo, dict(os.environ))
+    assert result.features_written == ["specs/001-login"]
+
+
 def test_disappeared_source_and_disabled_runtime_preserve_history(tmp_path):
     repo = make_repo(tmp_path, branch="001-login")
     home = tmp_path / "codex"

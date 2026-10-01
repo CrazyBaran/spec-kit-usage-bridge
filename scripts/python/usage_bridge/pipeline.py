@@ -375,7 +375,8 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             active = next((d for d in digests if d.session_id == active_id and d.runtime == active_runtime), None)
             if active and active.requests:
                 closing = active.requests[-1]
-                append(runtime, replace(snapshot, last_request_id=closing.request_id,
+                append(runtime, replace(snapshot, ts=max(snapshot.ts, closing.ts or snapshot.ts),
+                                        last_request_id=closing.request_id,
                                         last_request_ts=closing.ts))
         digests, dropped = dedup_across_sessions(digests)
         extension_ids = installed_extension_ids(project)

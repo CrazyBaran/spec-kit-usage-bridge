@@ -37,9 +37,10 @@ def run(cmd, cwd=None, **kwargs):
     return result
 
 
-def init(tmp_path, *extra):
+def init(tmp_path, *extra, integration='claude'):
     proj = tmp_path / 'proj'
-    run(SPECIFY + ['init', str(proj), '--integration', 'claude', '--ignore-agent-tools', '--non-interactive', *extra])
+    run(SPECIFY + ['init', str(proj), '--integration', integration,
+                  '--ignore-agent-tools', '--non-interactive', *extra])
     if not (proj / '.git').exists():
         run(['git', 'init', '-b', 'main', str(proj)])
     return proj
@@ -126,3 +127,31 @@ def test_install_from_release_zip(tmp_path):
         proj = init(tmp_path)
         run(SPECIFY + ['extension', 'add', 'usage-bridge', '--from', base + '/' + archive.name], cwd=proj, input='y\n')
     assert (proj / '.specify/extensions/usage-bridge/extension.yml').exists()
+
+
+@pytest.mark.parametrize('integration', ['codex', 'cursor-agent'])
+def test_other_runtime_install_dispatch_remove(tmp_path, integration, monkeypatch):
+    from codex_builders import prompt, tokens, turn, write_rollout
+
+    proj = init(tmp_path, integration=integration)
+    install(proj)
+    folder = '.agents' if integration == 'codex' else '.cursor'
+    assert (proj / folder / 'skills/speckit-usage-bridge-report/SKILL.md').is_file()
+    feature = proj / 'specs/001-login'
+    feature.mkdir(parents=True)
+    (proj / '.specify/feature.json').write_text('{"feature_directory":"specs/001-login"}', encoding='utf-8')
+    if integration == 'codex':
+        home = tmp_path / 'codex'
+        write_rollout(home, proj, events=[turn(), prompt(), tokens(100, 40, 20)])
+        monkeypatch.setenv('CODEX_HOME', str(home))
+        payload = {'type': 'agent-turn-complete', 'thread-id': 's', 'cwd': str(proj)}
+    else:
+        payload = {'hook_event_name': 'beforeSubmitPrompt', 'conversation_id': 'c', 'generation_id': 'g',
+                   'workspace_roots': [str(proj)], 'cwd': str(proj), 'prompt': '/speckit.plan'}
+    response = run([sys.executable, str(proj / '.specify/events.py'), 'speckit.usage-bridge.capture', 'stop', '30'],
+                   cwd=proj, input=json.dumps(payload))
+    assert response.stdout == '' and response.stderr == ''
+    assert (feature / 'token-usage.md').is_file()
+    assert check(proj).returncode == 0
+    run(SPECIFY + ['extension', 'remove', 'usage-bridge', '--force'], cwd=proj)
+    assert not (proj / folder / 'skills/speckit-usage-bridge-report').exists()

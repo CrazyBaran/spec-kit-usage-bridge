@@ -14,7 +14,7 @@ from usage_bridge.tu_compat import VendorError
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=timezone.utc)
 STOP_COMMAND = '"python" "${CLAUDE_PROJECT_DIR}/.specify/events.py" speckit.usage-bridge.capture stop 30'
 IDS = ["python", "integration", "stop-hook", "dispatcher", "git", "transcripts", "runtime-dir", "last-capture",
-       "config"]
+       "vendor", "config"]
 
 
 def healthy(tmp_path):
@@ -52,7 +52,7 @@ def test_healthy_prints_ok_line(tmp_path):
 
 
 @pytest.mark.parametrize("break_it,check_id", [
-    (lambda p: (p / ".specify/integration.json").write_text('{"installed_integrations": ["cursor-agent"]}'),
+    (lambda p: (p / ".specify/integration.json").write_text('{"installed_integrations": ["unsupported"]}'),
      "integration"),
     (lambda p: (p / ".claude/settings.json").write_text('{"hooks": {}}'), "stop-hook"),
     (lambda p: (p / ".specify/events.py").unlink(), "dispatcher")], ids=["integration", "stop-hook", "dispatcher"])
@@ -81,8 +81,22 @@ def test_stop_hook_with_windows_separators_counts(tmp_path):
 def test_cursor_only_also_warns(tmp_path):
     p = healthy(tmp_path)
     (p / ".specify/integration.json").write_text('{"installed_integrations": ["cursor-agent"]}')
-    assert any(r.level == "WARN" and "Cursor capture is not supported in v0.1" in r.message
-               for r in run_checks(p, dict(os.environ), NOW))
+    results = run_checks(p, dict(os.environ), NOW)
+    assert by_id(results, "integration").ok
+    assert not any(r.level == "FAIL" and not r.ok for r in results)
+    assert any(r.id == "cursor.capture-mode" and "manual" in r.message for r in results)
+
+
+def test_codex_only_does_not_require_claude(tmp_path):
+    p = healthy(tmp_path)
+    (p / ".specify/integration.json").write_text('{"installed_integrations": ["codex"]}')
+    (p / ".claude/settings.json").unlink()
+    results = run_checks(p, dict(os.environ), NOW)
+    assert by_id(results, "integration").ok
+    assert not any(r.level == "FAIL" and not r.ok for r in results)
+    assert any(r.id == "codex.capture-mode" for r in results)
+    assert any(r.id == "codex.sources" for r in results)
+    assert by_id(results, "vendor").ok
 
 
 @pytest.mark.parametrize("doc", [{"default_integration": "claude"}, {"integration": "claude"}])
@@ -189,7 +203,7 @@ def test_json_and_verbose(tmp_path):
     assert {c["status"] for c in doc["checks"]} == {"ok"}
     out = io.StringIO()
     check_main(["--verbose"], out, dict(os.environ), p, now=NOW)
-    assert out.getvalue().count("\n") == 9 and out.getvalue().startswith("ok python: Python ")
+    assert out.getvalue().count("\n") == len(IDS) and out.getvalue().startswith("ok python: Python ")
 
 
 def test_json_reports_failures(tmp_path):

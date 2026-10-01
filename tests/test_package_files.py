@@ -51,7 +51,8 @@ EXPECTED_MANIFEST = {  # spec §6.1
              "description": "Usage Bridge settings", "required": False},
         ],
     },
-    "events": {"stop": {"command": "speckit.usage-bridge.capture", "timeout": 30}},
+    "events": {"stop": {"command": "speckit.usage-bridge.capture", "timeout": 30},
+               "user_prompt_submit": {"command": "speckit.usage-bridge.capture", "timeout": 30}},
     "hooks": {
         "before_specify": {"command": "speckit.usage-bridge.check", "optional": False,
                            "description": "Usage Bridge capture sanity check"},
@@ -135,7 +136,7 @@ def test_report_entrypoint_prints_utf8(tmp_path):
 
 def test_check_entrypoint_reports_findings(tmp_path):
     p = run_script("check", make_repo(tmp_path))
-    assert p.returncode == 1 and "FAIL integration: Run specify integration install claude" in p.stdout.decode()
+    assert p.returncode == 1 and "FAIL integration: Install a supported Spec Kit integration" in p.stdout.decode()
 
 
 @pytest.mark.parametrize("name,code,expected", [
@@ -195,4 +196,5 @@ def test_config_template_is_the_spec_block():
     assert yaml.safe_load(text) == {
         "enabled": True, "output": {"dir": "{feature_dir}"}, "transcripts": {"extra_dirs": []},
         "pricing": {"overrides": {}}, "privacy": {"prompt_previews": False}, "capture": {"deadline_seconds": 15},
-        "log": {"level": "info"}}
+        "log": {"level": "info"}, "runtimes": {"enabled": ["claude", "codex", "cursor"],
+        "codex": {"extra_dirs": []}, "cursor": {"extra_dirs": [], "data_dir": ""}}}
