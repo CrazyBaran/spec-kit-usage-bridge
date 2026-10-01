@@ -4,7 +4,6 @@ import shutil
 import subprocess
 
 import pytest
-
 from test_speckit import init, install
 
 pytestmark = pytest.mark.integration

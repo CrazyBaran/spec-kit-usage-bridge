@@ -31,3 +31,10 @@ def test_changelog_and_release_doc():
     assert "## [0.1.0]" in read("CHANGELOG.md") and "f4078277e79c007993e0cb595bb95f924a2a8777" in read("CHANGELOG.md")
     rel = read("docs/release.md")
     assert "tools/update-vendor.py" in rel and "catalog.json" in rel and "specify extension update usage-bridge" in rel
+
+
+def test_v02_migration_and_support_claims():
+    assert "## [0.2.0]" in read("CHANGELOG.md")
+    assert "schema v2" in read("docs/release.md")
+    assert "all contributors" in read("docs/release.md")
+    assert "manual/unverified" in read("README.md")

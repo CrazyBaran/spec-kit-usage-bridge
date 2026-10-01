@@ -5,6 +5,15 @@ from a version tag after CI passes; creating tags and publishing releases requir
 
 ## Release contents
 
+Version 0.2.0 writes schema v2 and reads existing v1 author reports as exact Claude
+data. Upgrade **all contributors** before sharing new reports. Downgrading writers
+to v0.1 is unsupported; restore a backup if a downgrade is necessary. Existing
+configuration files keep their settings and use default runtime settings when omitted.
+
+The archive includes the local Codex adapter, Cursor bridge adapter and OpenAI
+pricing table. Vendor hashes are unchanged. Codex and Cursor authenticated automatic
+delivery remains manual/unverified; see [native smoke coverage](native-smoke.md).
+
 The release workflow runs CI, builds `usage-bridge-vX.Y.Z.zip` with one top-level `usage-bridge/` folder, generates
 `catalog.json`, and publishes both assets with the matching `CHANGELOG.md` section as release notes. Packaging follows
 `.extensionignore`. The catalog entry carries the extension manifest fields, release download URL, documentation,

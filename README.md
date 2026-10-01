@@ -1,7 +1,8 @@
 # Usage Bridge — token-usage for Spec Kit
 
 Usage Bridge connects [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) to
-[Spec Kit](https://github.com/github/spec-kit). It captures Claude Code transcript usage after each turn and writes a
+[Spec Kit](https://github.com/github/spec-kit). Version 0.2 reads Claude Code transcripts, local Codex rollouts and
+best-available Cursor history/activity, and writes a
 per-feature, per-phase token and estimated cost audit beside the feature's spec. Reports combine sessions and authors,
 include subagent usage, and remove duplicate API requests from resumed sessions.
 
@@ -18,9 +19,14 @@ local paths unless prompt previews are explicitly enabled.
 
 ## Install
 
-Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and Claude Code integration. Git is recommended for
+Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and a Claude, Codex or Cursor integration. Git is recommended for
 branch and worktree attribution. Capture is automatic through the Claude `Stop` hook after the extension and Claude
 runtime events are configured.
+
+Codex and Cursor automatic capture is **manual/unverified** until authenticated native
+event delivery is demonstrated. Manual capture and report commands work across runtimes.
+The pinned Spec Kit dispatcher install/dispatch/remove tests pass for all three integrations
+on Windows. See [native verification](docs/native-smoke.md) for the tested scope.
 
 Add the install-allowed catalog and install the extension in a Spec Kit project:
 
@@ -45,15 +51,15 @@ python .specify/extensions/usage-bridge/scripts/python/check.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-The check reports missing Python, Claude integration or runtime events as failures. Transcript discovery and git issues
-are warnings. Cursor projects receive a warning because Cursor capture is not supported in v0.1.
+The check reports missing Python or a supported enabled integration as failures. Optional history
+discovery and git issues are warnings. Codex/Cursor checks explicitly report unverified native delivery.
 
 ## Commands
 
 - `/speckit-usage-bridge-report [feature-id | --all] [--json]` refreshes capture and prints a feature report or a
   cross-feature rollup. With no feature argument it selects the active or most recently active feature.
 - `/speckit-usage-bridge-check [--verbose] [--json]` checks the integration and environment. A failure exits 1.
-- `/speckit-usage-bridge-capture` forces a manual refresh; normal capture runs after each turn. Hook capture is silent
+- `/speckit-usage-bridge-capture` forces a manual refresh; automatic capture requires native event delivery. Hook capture is silent
   and exits 0 so reporting problems do not interrupt the agent.
 
 ## Configuration
@@ -68,6 +74,13 @@ output:
   dir: "{feature_dir}"
 transcripts:
   extra_dirs: []
+runtimes:
+  enabled: [claude, codex, cursor]
+  codex:
+    extra_dirs: []
+  cursor:
+    extra_dirs: []
+    data_dir: ""
 pricing:
   overrides: {}
 privacy:

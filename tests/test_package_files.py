@@ -21,7 +21,7 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "extension": {
         "id": "usage-bridge",
         "name": "Usage Bridge — token-usage for Spec Kit",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "description": "Bridges token-usage into Spec Kit: automatic per-phase, per-feature token & cost audit of the "
                        "SDD flow across sessions, from agent transcripts.",
         "author": "CrazyBaran",
@@ -40,7 +40,7 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "provides": {
         "commands": [
             {"name": "speckit.usage-bridge.capture", "file": "commands/capture.md",
-             "description": "Refresh the token-usage audit now (also runs automatically after every turn)"},
+             "description": "Refresh the token-usage audit now (automatic when native events are delivered)"},
             {"name": "speckit.usage-bridge.report", "file": "commands/report.md",
              "description": "Token usage audit per feature / phase / session"},
             {"name": "speckit.usage-bridge.check", "file": "commands/check.md",
@@ -59,13 +59,13 @@ EXPECTED_MANIFEST = {  # spec §6.1
         "after_implement": {"command": "speckit.usage-bridge.report", "optional": True,
                             "prompt": "Show the token usage audit for this feature?"},
     },
-    "tags": ["tokens", "cost", "observability", "token-usage", "claude-code"],
+    "tags": ["tokens", "cost", "observability", "token-usage", "claude-code", "codex", "cursor"],
 }
 
 SPEC_BODIES = {  # spec §6.2, verbatim
     "capture": (
         "Run `{SCRIPT}` from the project root and relay its one-line summary. Do not compute or add numbers.\n"
-        "This command also runs automatically after every agent turn; use it only to force a refresh."
+        "Automatic capture requires native event delivery; use this command to refresh manually."
     ),
     "report": (
         "Run `{SCRIPT} $ARGUMENTS` from the project root. It refreshes the audit, then prints a Markdown report.\n"

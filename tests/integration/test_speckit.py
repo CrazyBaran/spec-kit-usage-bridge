@@ -122,7 +122,7 @@ def test_install_from_release_zip(tmp_path):
     spec = importlib.util.spec_from_file_location('build_release', ROOT / 'tools/build_release.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    archive, _ = module.build(ROOT, '0.1.0', tmp_path / 'dist', 'https://example.invalid')
+    archive, _ = module.build(ROOT, '0.2.0', tmp_path / 'dist', 'https://example.invalid')
     with serve(archive.parent) as base:
         proj = init(tmp_path)
         run(SPECIFY + ['extension', 'add', 'usage-bridge', '--from', base + '/' + archive.name], cwd=proj, input='y\n')

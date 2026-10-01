@@ -18,4 +18,27 @@
 
 ## Upstream candidates
 
+### v0.2 runtime coverage
+
+Codex reads only local `CODEX_HOME/sessions`, `archived_sessions`, and configured
+extra directories. Cloud-only history is unavailable until it exists locally.
+Cumulative counters are reconciled conservatively; resets, malformed buckets and
+uncertain inherited history reduce coverage. Cache reads are removed from input
+before summing; reasoning tokens remain part of output. Codex counter observations
+and Cursor segments are not API request counts, so calls, repriming and session
+splitting verdicts are unavailable for these runtimes.
+
+Cursor sources prefer bridge-owned hook ledgers, then explicit owned exports,
+then available local SQLite state. Source availability varies by version and OS.
+Activity without usage has null token buckets, never fabricated zero usage.
+Unknown models retain usage with unavailable complete cost. The known-cost and
+measured-token subtotals exclude unavailable coverage. Costs remain API-equivalent
+estimates. The bundled OpenAI table supports its named models; other models require
+explicit pricing overrides. Codex is implemented outside the unchanged vendor.
+
+Prompt previews default off. Cursor ledgers keep command/phase evidence and minimal
+identity metadata under the Git runtime directory. Disabling previews removes text
+from bridge-owned ledgers and caches on refresh; original agent files remain intact.
+Local-source failure or an interrupted scan retains prior report snapshots.
+
 These are candidates for discussion with token-usage upstream and are not commitments: limit Skill-tool segments to Cowork or make them optional; expose a request-level API; deduplicate `requestId` across files; make built-in command transparency configurable; improve Windows CI. Upstream issues are not posted without explicit approval.
