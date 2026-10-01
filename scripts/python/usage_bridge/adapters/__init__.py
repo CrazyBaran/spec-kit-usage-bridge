@@ -7,4 +7,8 @@ def get_adapter(runtime: str) -> RuntimeAdapter:
         from .claude import ClaudeAdapter
 
         return ClaudeAdapter()
+    if runtime == "codex":
+        from .codex import CodexAdapter
+
+        return CodexAdapter()
     raise ValueError(f"unsupported runtime: {runtime}")
