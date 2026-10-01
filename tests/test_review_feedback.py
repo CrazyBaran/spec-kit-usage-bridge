@@ -196,3 +196,42 @@ def test_export_operation_uses_remaining_timeout(tmp_path, monkeypatch):
                         lambda: [sys.executable, '-c', 'import time; time.sleep(5)'])
     with pytest.raises(TimeoutError):
         tu_compat.cursor_export(tmp_path / 'export.json', timeout=0.1, checkouts=[tmp_path])
+
+
+def test_invalid_export_does_not_hide_healthy_cursor_ledgers(tmp_path):
+    from test_cursor_adapter import captured
+
+    ctx = context(tmp_path, tmp_path)
+    captured(ctx)
+    exports = tmp_path / 'exports'
+    exports.mkdir()
+    (exports / 'broken.json').write_text('{broken')
+    sources = list(CursorAdapter().discover(ctx, Config(cursor_data_dir=str(tmp_path / 'missing'),
+                                                       cursor_extra_dirs=[str(exports)])))
+    assert len(sources) == 1
+    assert sources[0].source_kind == 'hook_ledger'
+
+
+@pytest.mark.parametrize('missing_parent', [True, False])
+def test_cursor_zero_contributor_does_not_hide_missing_same_model_usage(tmp_path, missing_parent):
+    ctx = context(tmp_path, tmp_path)
+    reader = CursorAdapter()
+    model = 'claude-sonnet-4-6'
+    zero = dict(input_tokens=0, output_tokens=0, cache_read_tokens=0, cache_write_tokens=0)
+    for generation in ['mixed', 'measured']:
+        base = dict(conversation_id='c', generation_id=generation, workspace_roots=[str(tmp_path)])
+        reader.record({**base, 'hook_event_name':'beforeSubmitPrompt', 'prompt':'/speckit.plan'}, ctx)
+        completion = {**base, 'hook_event_name':'stop', 'model':model}
+        if generation == 'measured':
+            completion.update(zero, input_tokens=10, output_tokens=10)
+        elif not missing_parent:
+            completion.update(zero)
+        reader.record(completion, ctx)
+        if generation == 'mixed':
+            child = {**base, 'hook_event_name':'subagentStop', 'subagent_id':'child', 'model':model}
+            if missing_parent:
+                child.update(zero)
+            reader.record(child, ctx)
+    digest = reader.parse(next(reader.discover(ctx, Config(cursor_data_dir=str(tmp_path / 'missing')))), ctx)
+    assert digest.measurement == 'partial'
+    assert digest.requests[0].input is None
