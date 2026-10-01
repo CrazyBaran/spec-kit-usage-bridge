@@ -11,4 +11,8 @@ def get_adapter(runtime: str) -> RuntimeAdapter:
         from .codex import CodexAdapter
 
         return CodexAdapter()
+    if runtime == "cursor":
+        from .cursor import CursorAdapter
+
+        return CursorAdapter()
     raise ValueError(f"unsupported runtime: {runtime}")

@@ -217,3 +217,37 @@ def cost(by_model: Mapping[str, Mapping[str, int]], rates: Rates) -> float | Non
 
 def unpriced(by_model: Mapping[str, Mapping[str, int]], rates: Rates) -> list[str]:
     return module().unpriced_models(_buckets(by_model), rates.table)
+
+
+@contextlib.contextmanager
+def _cursor_environment(ledger_root: Path, data_root: Path | None):
+    names = ("TOKEN_USAGE_LEDGER_DIR", "TOKEN_USAGE_CURSOR_DIR")
+    saved = {name: os.environ.get(name) for name in names}
+    os.environ["TOKEN_USAGE_LEDGER_DIR"] = str(ledger_root.parent)
+    if data_root is not None:
+        os.environ["TOKEN_USAGE_CURSOR_DIR"] = str(data_root)
+    try:
+        with _quiet():
+            yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def cursor_sessions(project: Path, ledger_root: Path, data_root: Path | None) -> list[object]:
+    # Vendor appends /cursor to its ledger root. Bridge storage is /cursor-ledgers/cursor.
+    with _cursor_environment(ledger_root / "cursor", data_root):
+        return list(module().get_runtime_adapter("cursor").iter_sessions(project_dir=project))
+
+
+def cursor_parse(source: object) -> dict[str, Any]:
+    with _quiet():
+        return module().get_runtime_adapter("cursor").parse(source)
+
+
+def cursor_export(path: Path):
+    with _quiet():
+        return module().get_runtime_adapter("cursor").locate(str(path))
