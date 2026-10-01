@@ -22,3 +22,12 @@ authenticated CLI. They run a short agent request and assert that the native
 event produced capture state. A skipped test is not evidence of automatic support.
 Run each supported operating system and runtime version before changing the
 support claim. macOS/Linux native delivery remains unverified.
+
+## v0.2.1 checkpoint coverage
+
+The fourth command and after-specify workflow hook are supplemental to native
+runtime events. Synthetic checkpoint tests verify selection and report refresh
+for Claude, Codex and Cursor. Real Spec Kit installation tests verify rendering
+and removal. These checks do not establish authenticated native event delivery;
+Codex/Cursor automatic delivery remains unverified. Explicit later-phase
+checkpoints are required even after an initial specify binding.

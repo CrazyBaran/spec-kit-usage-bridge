@@ -12,8 +12,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
-from .digest import SessionDigest
 from .bindings import FeatureBinding
+from .digest import SessionDigest
 from .phases import Run
 from .timeline import TimelineEntry, relative_dir
 

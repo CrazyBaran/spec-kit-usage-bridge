@@ -41,6 +41,7 @@ def test_binding_moves_last_local_run_to_custom_feature(tmp_path):
     assert moved['sessions'][0]['runs'][0]['phase'] == 'clarify'
     assert (target / 'token-usage.md').exists()
     import io
+
     from usage_bridge.cli import report_main
     output = io.StringIO()
     assert report_main(['--all'], output, dict(os.environ), repo) == 0

@@ -18,7 +18,8 @@ def test_binding_overrides_old_branch_for_one_invocation(tmp_path, runtime):
     assert rows[0].attributed_by == 'binding'
     assert rows[1].bucket.feature_dir == 'specs/001-old'
     other = replace(first, runtime='cursor' if runtime != 'cursor' else 'claude')
-    assert attribute_runs([other], {}, ['specs/001-old', 'specs/002-new'], bindings=[binding])[0].attributed_by == 'branch'
+    other_row = attribute_runs([other], {}, ['specs/001-old', 'specs/002-new'], bindings=[binding])[0]
+    assert other_row.attributed_by == 'branch'
 
 
 def test_selection_requires_unique_invocation_or_explicit_selector():
@@ -102,6 +103,7 @@ def test_binding_rejects_invalid_phase_or_timestamp(tmp_path, phase, stamp):
 def test_duplicate_binding_keys_are_rejected(tmp_path):
     import json
     from dataclasses import asdict
+
     from usage_bridge.bindings import FeatureBinding, load_bindings
     binding = FeatureBinding('codex', 's', str(tmp_path), 'specs/B', 'clarify', '2026-10-01T08:00:00Z')
     (tmp_path / 'feature-bindings.json').write_text(json.dumps({'version': 1, 'bindings': [asdict(binding)] * 2}))

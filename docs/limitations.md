@@ -42,3 +42,12 @@ from bridge-owned ledgers and caches on refresh; original agent files remain int
 Local-source failure or an interrupted scan retains prior report snapshots.
 
 These are candidates for discussion with token-usage upstream and are not commitments: limit Skill-tool segments to Cowork or make them optional; expose a request-level API; deduplicate `requestId` across files; make built-in command transparency configurable; improve Windows CI. Upstream issues are not posted without explicit approval.
+
+## v0.2.1 invocation checkpoints
+
+Explicit bindings override stale branch attribution only for the selected observed
+invocation. They neither resolve ambiguous token intervals nor recover cloud-only
+history. Later core/extension phases require another explicit checkpoint, and
+helper skills retain their surrounding phase. Unknown identity is diagnosed,
+never guessed. Private bindings do not travel between machines. Other authors'
+committed source files cannot be repaired by a local checkpoint.

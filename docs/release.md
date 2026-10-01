@@ -67,3 +67,14 @@ The extension vendors a pinned, unmodified token-usage library and records its s
 the compatibility contract, then release the extension archive and catalog. Developers install the extension in
 their Spec Kit project using the catalog or archive instructions above. See [the changelog](../CHANGELOG.md) for the
 released extension version and upstream token-usage pin.
+
+## v0.2.1 preparation
+
+Version 0.2.1 retains schema v2 and adds the checkpoint entrypoint/package module,
+binding module and command instructions. The catalog must advertise four commands
+and three workflow hooks. Build with `python tools/build_release.py --version 0.2.1
+--out dist --base-url https://github.com/CrazyBaran/spec-kit-usage-bridge` and inspect
+the archive before publishing. Vendor hashes stay unchanged. Update/reinstall each
+project to render the new command; development installs use `specify extension add
+D:/spec-kit-usage-bridge --dev`. Preserve existing configuration and report history.
+Preparing this branch does not publish a tag or release.

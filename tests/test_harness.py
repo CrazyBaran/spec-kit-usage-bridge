@@ -17,7 +17,7 @@ def test_token_usage_env_points_into_tmp(tmp_path):
 def test_package_version():
     import usage_bridge
 
-    assert usage_bridge.__version__ == "0.2.0"
+    assert usage_bridge.__version__ == "0.2.1"
 
 
 def test_builder_writes_claude_shaped_session(tmp_path):

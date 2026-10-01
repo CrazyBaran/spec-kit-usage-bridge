@@ -21,7 +21,7 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "extension": {
         "id": "usage-bridge",
         "name": "Usage Bridge — token-usage for Spec Kit",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "description": "Bridges token-usage into Spec Kit: automatic per-phase, per-feature token & cost audit of the "
                        "SDD flow across sessions, from agent transcripts.",
         "author": "CrazyBaran",
@@ -39,6 +39,8 @@ EXPECTED_MANIFEST = {  # spec §6.1
     },
     "provides": {
         "commands": [
+            {"name": "speckit.usage-bridge.checkpoint", "file": "commands/checkpoint.md",
+             "description": "Bind one observed phase invocation to its explicit feature"},
             {"name": "speckit.usage-bridge.capture", "file": "commands/capture.md",
              "description": "Refresh the token-usage audit now (automatic when native events are delivered)"},
             {"name": "speckit.usage-bridge.report", "file": "commands/report.md",
@@ -54,6 +56,8 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "events": {"stop": {"command": "speckit.usage-bridge.capture", "timeout": 30},
                "user_prompt_submit": {"command": "speckit.usage-bridge.capture", "timeout": 30}},
     "hooks": {
+        "after_specify": {"command": "speckit.usage-bridge.checkpoint", "optional": False,
+                          "description": "Bind this specify invocation to its resolved feature"},
         "before_specify": {"command": "speckit.usage-bridge.check", "optional": False,
                            "description": "Usage Bridge capture sanity check"},
         "after_implement": {"command": "speckit.usage-bridge.report", "optional": True,
@@ -105,7 +109,7 @@ def load_entrypoint(name, monkeypatch):
     return module
 
 
-@pytest.mark.parametrize("name", ["capture.py", "report.py", "check.py"])
+@pytest.mark.parametrize("name", ["capture.py", "report.py", "check.py", "checkpoint.py"])
 def test_entrypoints_parse_with_python36_grammar(name):
     ast.parse((ROOT / "scripts/python" / name).read_text(encoding="utf-8"), feature_version=(3, 6))
 

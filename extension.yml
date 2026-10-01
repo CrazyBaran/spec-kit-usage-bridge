@@ -2,7 +2,7 @@ schema_version: "1.0"
 extension:
   id: usage-bridge
   name: "Usage Bridge — token-usage for Spec Kit"
-  version: "0.2.0"
+  version: "0.2.1"
   description: "Bridges token-usage into Spec Kit: automatic per-phase, per-feature token & cost audit of the SDD flow across sessions, from agent transcripts."
   author: "CrazyBaran"
   repository: "https://github.com/CrazyBaran/spec-kit-usage-bridge"
