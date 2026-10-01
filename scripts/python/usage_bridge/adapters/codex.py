@@ -134,6 +134,13 @@ def parse_rollout(source: SourceDescriptor, context: ParseContext) -> SessionDig
     entries = histories[0] if histories else []
     if any(entries[:len(other)] != other for other in histories[1:]):
         reasons.add("conflicting-session-copies")
+        # Only the prefix agreed by every copy is trustworthy after divergence.
+        common_length = min(map(len, histories))
+        for index, copies in enumerate(zip(*histories)):
+            if any(copy != copies[0] for copy in copies[1:]):
+                common_length = index
+                break
+        entries = entries[:common_length]
     meta = source.native["meta"]
     events, counters, branches = [], [], []
     model, native_turn = "unknown", None

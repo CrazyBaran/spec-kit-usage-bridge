@@ -57,17 +57,25 @@ def append_event(payload: Mapping[str, Any], context: ParseContext) -> None:
 
 def remove_previews(ledger_root: Path) -> None:
     for path in ledger_root.rglob("*.jsonl"):
+        original = path.read_text(encoding="utf-8")
         clean = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        changed = False
+        for line in original.splitlines():
             try:
                 record = json.loads(line)
             except ValueError:
+                changed = True
                 continue
+            before = dict(record)
             for key in ("prompt", "label", "task"):
                 value = record.pop(key, None)
                 if key in ("prompt", "label") and isinstance(value, str) and invocation(value):
                     record[key] = invocation(value)
+            changed |= record != before
             clean.append(json.dumps(record, separators=(",", ":")))
+        if not changed:
+            continue
+        scrubbed = "\n".join(clean) + "\n"
         temp = path.with_suffix(".tmp")
-        temp.write_text("\n".join(clean) + "\n", encoding="utf-8")
+        temp.write_text(scrubbed, encoding="utf-8")
         os.replace(temp, path)

@@ -250,7 +250,7 @@ def load_sources(context: ParseContext, config: Config, active: tuple[str, str] 
             sources = list(adapter.discover(context, config))
             sources.sort(key=lambda source: source.identity != active)
             for source in sources:
-                key = {"v": 4, "runtime": name, "stamps": [list(s) for s in source.stamps],
+                key = {"v": 5, "runtime": name, "stamps": [list(s) for s in source.stamps],
                        "checkouts": sorted(os.path.normcase(str(root.resolve())) for root in context.checkouts),
                        "keep_previews": context.keep_previews, "vendor": tu_compat.vendored_sha()}
                 path = directory / (hashlib.sha256(repr(source.identity).encode()).hexdigest() + ".json")
@@ -415,7 +415,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
                 entries.append(session_entry(digest, own_runs, rates, previous, cfg.prompt_previews))
             renumber_runs(entries)
             entries = normalize_source({"schema": SCHEMA_FEATURE, "schema_version": 2,
-                                        "sessions": entries})["sessions"]
+                                        "sessions": entries}, require_metadata=False)["sessions"]
             _set_snapshot_revisions(entries, feature_sources(work, cfg, feature_dir), author, machine)
             changed = False
             own_path = source_dir / f"{author}.{machine}.json"
@@ -434,7 +434,8 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             entries.extend(s for s in historical if (s.get("runtime", "claude"), s["session_id"]) not in refreshed)
             if entries:
                 state, reasons = completeness(feature_digests, deadline_hit)
-                unpriced = sorted({row.model for a in feature_runs for row in a.run.requests
+                unpriced = sorted({row.model for a in feature_runs
+                                   for row in [*a.run.requests, *(r for sub in a.run.subagents for r in sub.requests)]
                                    if "unpriced-model" in estimate(a.run.runtime, row.model, row.flat(), rates,
                                                                   row.measurement)["reasons"]})
                 document = author_file(PurePosixPath(feature_dir).name, feature_dir, author, machine, generator,

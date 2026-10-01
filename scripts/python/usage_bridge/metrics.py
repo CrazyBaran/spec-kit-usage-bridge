@@ -78,10 +78,16 @@ def run_summary(run: Run, rates: Rates) -> dict[str, Any]:
             usage = dict.fromkeys(USAGE_KEYS)
             summary["measurement"] = "activity_only"
         elif run.measurement != "exact":
-            usage = dict.fromkeys(USAGE_KEYS)
+            coverage_reasons = (set(run.reasons) - set(summary["reasons"])
+                                - {"phase-interval-ambiguous", "parent-attribution-unresolved"})
+            if run.measurement == "activity_only" or summary["measurement"] == "exact" or coverage_reasons:
+                # Omitted observations invalidate complete buckets; unsupported
+                # fields within measured observations leave their other buckets known.
+                usage = dict.fromkeys(USAGE_KEYS)
             summary["measurement"] = run.measurement
         return {"calls": None, "observations": len(everything), "usage": usage,
-                "measured_usage": measured, "tokens": None if any(v is None for v in usage.values())
+                "measured_usage": measured, "tokens": None if summary["measurement"] != "exact"
+                or any(v is None for v in usage.values())
                 else sum(usage.values()), "cost_usd": cost,
                 "known_cost_usd": sum(known_costs) if known_costs else None,
                 "measurement": summary["measurement"], "reasons": sorted(set(summary["reasons"] + run.reasons)),

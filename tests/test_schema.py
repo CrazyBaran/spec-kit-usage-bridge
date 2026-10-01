@@ -5,6 +5,8 @@ def test_v1_normalization_preserves_partial_capture():
     from usage_bridge.schema import normalize_source
 
     result = normalize_source({"schema": "usage-bridge/feature-usage", "schema_version": 1,
+                               "author": {"name": "a"},
+                               "feature": {"id": "001-login", "directory": "specs/001-login"},
                                "completeness": "partial", "partial_reasons": ["deadline"],
                                "sessions": [{"session_id": "s", "runs": []}]})
     assert result["schema_version"] == 2

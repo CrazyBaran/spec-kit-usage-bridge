@@ -142,7 +142,8 @@ def test_copilot_priced_model_labeled_unpriced(tmp_path):
 def test_copilot_malformed_session_crashes_normalizer():
     from usage_bridge.schema import normalize_source
     with pytest.raises(ValueError):
-        normalize_source({'schema':'usage-bridge/feature-usage', 'schema_version':2, 'sessions':[None]})
+        normalize_source({'schema':'usage-bridge/feature-usage', 'schema_version':2, 'sessions':[None]},
+                         require_metadata=False)
 
 
 def test_corrupt_author_source_is_skipped_without_rewriting_it(tmp_path):

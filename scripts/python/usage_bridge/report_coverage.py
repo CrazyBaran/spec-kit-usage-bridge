@@ -55,5 +55,8 @@ def render_mixed(report, fmt_tokens, fmt_cost):
         cells = [run["phase"], run.get("runtime", "claude"), run["session_id"][:8], run["author"],
                  show(tokens), run.get("measurement", "exact"), fmt_cost(run.get("cost_usd"))]
         lines.append("| " + " | ".join(str(cell).replace("|", "\\|").replace("\n", " ") for cell in cells) + " |")
+    if report.get("unpriced_models"):
+        lines += ["", "Unpriced models (not included in the estimates): "
+                  + ", ".join(report["unpriced_models"]) + "."]
     lines += ["", "> Costs are API-price equivalent estimates; subscription plans are not billed per token."]
     return "\n".join(lines) + "\n"
