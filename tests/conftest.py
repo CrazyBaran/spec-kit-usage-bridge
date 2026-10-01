@@ -29,6 +29,9 @@ def hermetic_env(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv("TOKEN_USAGE_LEDGER_DIR", str(tmp_path / "ledger"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
+    monkeypatch.setenv("TOKEN_USAGE_CURSOR_DIR", str(home / "cursor"))
+    monkeypatch.setenv("APPDATA", str(home / "AppData/Roaming"))
     gitconfig = tmp_path / "gitconfig"
     gitconfig.write_text(GITCONFIG, encoding="utf-8")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))

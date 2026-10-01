@@ -6,6 +6,7 @@ Native discriminators and verified integration hints keep overlapping payloads s
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -41,6 +42,13 @@ def detect(raw: str, integration_hint: str | None = None) -> Detected:
     if payload.get("type") == "agent-turn-complete" and isinstance(payload.get("thread-id"), str):
         return Detected(CODEX, payload)
     if isinstance(payload.get("transcript_path"), str) and isinstance(payload.get("session_id"), str):
+        try:
+            with Path(payload["transcript_path"]).open(encoding="utf-8-sig") as stream:
+                entry = json.loads(stream.readline())
+            if isinstance(entry, dict) and entry.get("type") == "session_meta":
+                return Detected(CODEX, payload)
+        except (OSError, ValueError):
+            pass
         return Detected(CLAUDE, payload)
     if "conversation_id" in payload or "generation_id" in payload:
         return Detected(CURSOR, payload)

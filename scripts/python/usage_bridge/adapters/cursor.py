@@ -79,6 +79,15 @@ class CursorAdapter:
             quality = "partial"
             reasons.append("missing-segment-usage")
         path = source.native.ledger_path or source.native.export_path or source.native.db_path
+        branches = []
+        if source.native.ledger_path:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if record.get("branch"):
+                    branches.append((norm_ts(record.get("ts")), record["branch"]))
         return SessionDigest(source.session_id, str(path), first_ts, last_ts, last_ts,
-                             events=events, requests=requests, runtime="cursor", measurement=quality,
+                             branches=branches, events=events, requests=requests, runtime="cursor", measurement=quality,
                              reasons=reasons, capabilities=Capabilities())

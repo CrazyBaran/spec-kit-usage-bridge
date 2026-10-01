@@ -21,7 +21,7 @@ from .adapters.base import Capabilities
 from .discovery import SessionFiles
 from .timefmt import norm_ts
 
-DIGEST_VERSION = 1
+DIGEST_VERSION = 2
 PREVIEW_CHARS = 120
 
 

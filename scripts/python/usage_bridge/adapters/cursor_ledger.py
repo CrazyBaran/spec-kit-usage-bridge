@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..paths import current_branch
 from .base import ParseContext
 from .codex import invocation
 
@@ -22,6 +23,9 @@ def append_event(payload: Mapping[str, Any], context: ParseContext) -> None:
     record = {"hook": hook, "conversation_id": conversation,
               "generation_id": str(payload.get("generation_id") or "unknown"),
               "ts": payload.get("timestamp") or datetime.now(timezone.utc).isoformat()}
+    branch = current_branch(context.checkouts[0]) if context.checkouts else None
+    if branch:
+        record["branch"] = branch
     roots = payload.get("workspace_roots")
     if isinstance(roots, list):
         record["workspace_roots"] = [root for root in roots if isinstance(root, str)]
