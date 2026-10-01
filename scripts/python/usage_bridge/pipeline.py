@@ -131,10 +131,21 @@ def _output_dir(work: Path, cfg: Config, feature_dir: str, log: logging.Logger |
     return candidate
 
 
+def _source_dir(work: Path, out_dir: Path) -> Path:
+    """Resolve the final source directory before reading, writing or removing reports."""
+    try:
+        directory = (out_dir / "token-usage").resolve()
+        directory.relative_to(Path(work).resolve())
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise ValueError("token-usage source directory resolves outside the checkout") from exc
+    return directory
+
+
 def feature_sources(work: Path, cfg: Config, feature_dir: str) -> list[dict[str, Any]]:
     """Every readable per-author source file of a feature (other authors' files included)."""
     sources: list[dict[str, Any]] = []
-    for path in sorted((_output_dir(work, cfg, feature_dir) / "token-usage").glob("*.json")):
+    directory = _source_dir(work, _output_dir(work, cfg, feature_dir))
+    for path in sorted(directory.glob("*.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, ValueError):
@@ -299,6 +310,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
         written: list[str] = []
         for feature_dir in known:
             out_dir = _output_dir(work, cfg, feature_dir, log)
+            source_dir = _source_dir(work, out_dir)
             feature_runs = [a for a in attributed if a.bucket.kind == "feature" and a.bucket.feature_dir == feature_dir]
             session_ids = {a.run.session_id for a in feature_runs}
             feature_digests = sorted((by_id[s] for s in session_ids), key=lambda d: (d.first_ts or "", d.session_id))
@@ -312,7 +324,7 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             renumber_runs(entries)
             _set_snapshot_revisions(entries, feature_sources(work, cfg, feature_dir), author, machine)
             changed = False
-            own_path = out_dir / "token-usage" / f"{author}.{machine}.json"
+            own_path = source_dir / f"{author}.{machine}.json"
             if entries:
                 state, reasons = completeness(feature_digests, deadline_hit)
                 unpriced = tu_compat.unpriced(_usage_by_model(feature_runs), rates)

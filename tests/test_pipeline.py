@@ -338,3 +338,44 @@ def test_valid_output_template_keeps_custom_destination(tmp_path, template, expe
     env = dict(os.environ, SPECKIT_USAGE_BRIDGE_OUTPUT_DIR=template)
     assert run_capture(raw, repo, env).status == "ok"
     assert (repo / expected / "token-usage" / own).is_file()
+
+
+def link_directory(link, target):
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+@pytest.mark.parametrize("mode", ["read", "write", "delete"])
+def test_escaping_token_usage_directory_is_rejected(tmp_path, mode):
+    from usage_bridge.config import load_config
+    from usage_bridge.render import author_file
+    if mode == "write":
+        repo, raw = single_session(tmp_path)
+    else:
+        repo, raw = make_repo(tmp_path), ""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    source = author_file("001-login", "specs/001-login", "test-author", machine_id(socket.gethostname()),
+                         {}, [], "complete", [], [])
+    victim = outside / own
+    victim.write_text(dump_json(source), encoding="utf-8")
+    before = victim.read_bytes()
+    link_directory(repo / "specs/001-login/token-usage", outside)
+    if mode == "read":
+        with pytest.raises(ValueError, match="outside"):
+            pipeline.feature_sources(repo, load_config(repo, os.environ), "specs/001-login")
+    else:
+        assert run_capture(raw, repo, dict(os.environ)).status == "error"
+    assert victim.read_bytes() == before
+    assert list(outside.iterdir()) == [victim]
+
+
+def test_token_usage_directory_link_inside_checkout_is_supported(tmp_path):
+    repo, raw = single_session(tmp_path)
+    target = repo / "reports"
+    target.mkdir()
+    link_directory(repo / "specs/001-login/token-usage", target)
+    assert run_capture(raw, repo, dict(os.environ)).status == "ok"
+    assert (target / own).is_file()
