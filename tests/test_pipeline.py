@@ -307,3 +307,34 @@ def test_closing_request_without_timestamp_falls_back_to_branch(tmp_path):
     run = data["sessions"][0]["runs"][0]
     assert run["attributed_by"] == "branch"
     assert run["usage"]["output"] == 7
+
+
+@pytest.mark.parametrize("output", ["reports", "reports/{{feature_id}}", "{feature_dir}/../../reports",
+                                    "reports/{feature_id:.0}"])
+def test_shared_output_template_cannot_overwrite_another_feature(tmp_path, output):
+    from usage_bridge.config import load_config
+    repo = make_repo(tmp_path, features=("001-a", "002-b"))
+    b = SessionBuilder("s1", cwd=repo, branch="001-a")
+    b.command("/speckit-plan")
+    b.reply("r1", output=10)
+    b.set_branch("002-b")
+    b.command("/speckit-tasks")
+    b.reply("r2", output=20)
+    env = dict(os.environ, SPECKIT_USAGE_BRIDGE_OUTPUT_DIR=output)
+    assert run_capture(payload("s1", b.write(), repo), repo, env).status == "ok"
+    cfg = load_config(repo, env)
+    for feature, phase, tokens in (("001-a", "plan", 10), ("002-b", "tasks", 20)):
+        sources = pipeline.feature_sources(repo, cfg, "specs/" + feature)
+        assert len(sources) == 1
+        assert sources[0]["feature"]["directory"] == "specs/" + feature
+        runs = sources[0]["sessions"][0]["runs"]
+        assert [(r["phase"], r["usage"]["output"]) for r in runs] == [(phase, tokens)]
+
+
+@pytest.mark.parametrize("template,expected", [("reports/{feature_id}", "reports/001-login"),
+                                             ("{feature_dir}/usage", "specs/001-login/usage")])
+def test_valid_output_template_keeps_custom_destination(tmp_path, template, expected):
+    repo, raw = single_session(tmp_path)
+    env = dict(os.environ, SPECKIT_USAGE_BRIDGE_OUTPUT_DIR=template)
+    assert run_capture(raw, repo, env).status == "ok"
+    assert (repo / expected / "token-usage" / own).is_file()

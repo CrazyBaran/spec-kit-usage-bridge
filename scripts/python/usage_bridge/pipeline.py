@@ -18,6 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from string import Formatter
 from typing import Any
 
 from . import __version__, tu_compat
@@ -109,7 +110,13 @@ class _Lock:
 
 def _output_dir(work: Path, cfg: Config, feature_dir: str, log: logging.Logger | None = None) -> Path:
     try:
+        fields = list(Formatter().parse(cfg.output_dir))
+        if not any(field in ("feature_dir", "feature_id") and not spec and conversion is None
+                   for _, field, spec, conversion in fields):
+            raise ValueError("a plain {feature_dir} or {feature_id} placeholder is required")
         relative = cfg.output_dir.format(feature_dir=feature_dir, feature_id=PurePosixPath(feature_dir).name)
+        if ".." in relative.replace("\\", "/").split("/"):
+            raise ValueError("parent traversal can erase the feature-specific path")
     except (KeyError, IndexError, ValueError) as exc:
         if log:
             log.warning("invalid output.dir %r (%s); using the feature directory", cfg.output_dir, exc)

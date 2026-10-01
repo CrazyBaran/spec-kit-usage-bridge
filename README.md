@@ -78,7 +78,11 @@ log:
   level: info
 ```
 
-`output.dir` supports `{feature_dir}` and `{feature_id}`. Pricing overrides use USD per million tokens, for example
+Custom `output.dir` paths must contain a plain `{feature_dir}` or `{feature_id}` placeholder and must not use
+parent-directory (`..`) traversal. Invalid templates fall back to each feature’s own directory and log a warning,
+preventing multiple features from overwriting the same report.
+
+Pricing overrides use USD per million tokens, for example
 `{input: 5.0, output: 25.0, cache_read: 0.5}` for a model prefix. The deadline is capped at 15 seconds within the
 30-second Spec Kit event timeout. The runtime directory is `<git common dir>/usage-bridge/` (or the extension's
 `.runtime/` fallback outside git); it holds capture state and logs, not committed reports.
