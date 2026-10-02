@@ -12,6 +12,7 @@ docs/
 **/__pycache__/
 pyproject.toml
 requirements-dev.txt
+AGENTS.md
 
 # Exclude Git metadata from both normal checkouts and linked worktrees.
 .git
