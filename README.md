@@ -330,8 +330,15 @@ on reducing context size. Usage Bridge records everyday work.
 
 [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) supplies transcript parsing, segmenting and pricing.
 Usage Bridge adds adapters, Spec Kit phase recognition, capture, deduplication, attribution
-and reports. The unmodified vendor is pinned to `f4078277e79c007993e0cb595bb95f924a2a8777`;
+and reports. The vendored token-usage copy is unmodified and pinned to
+`f4078277e79c007993e0cb595bb95f924a2a8777`;
 see [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Usage Bridge is a community project and is not affiliated with GitHub, Spec Kit or Wicked
-Sick Ltd. Licensed under the [MIT License](LICENSE).
+Sick Ltd.
+
+## License
+
+Usage Bridge is licensed under the [MIT License](LICENSE). Vendored token-usage retains
+its own [license](scripts/python/vendor/token_usage/LICENSE); see
+[third-party notices](THIRD_PARTY_NOTICES.md) for attribution and licensing details.
