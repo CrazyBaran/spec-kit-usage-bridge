@@ -48,8 +48,15 @@ path to that checkout:
 specify extension add "PATH_TO_USAGE_BRIDGE_CHECKOUT" --dev
 ```
 
-To refresh a source installation, update that checkout and rerun the command in each
-consuming project. This renders the v0.2.1 checkpoint command and workflow hook.
+To refresh an existing source installation, update that checkout, then run this from
+each consuming project's root using the same checkout-path placeholder:
+
+```bash
+specify extension add "PATH_TO_USAGE_BRIDGE_CHECKOUT" --dev --force
+```
+
+Spec Kit requires `--force` to replace an already installed extension. The reinstall
+renders the v0.2.1 checkpoint command and workflow hook.
 
 ### One or several integrations
 
