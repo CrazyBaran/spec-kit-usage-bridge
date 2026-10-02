@@ -22,6 +22,7 @@ def test_zip_layout(tmp_path):
         names = z.namelist()
         assert archive.name == 'usage-bridge-v0.2.1.zip'
         assert all(n.startswith('usage-bridge/') for n in names)
+        assert 'usage-bridge/AGENTS.md' not in names
         for required in ('extension.yml', 'THIRD_PARTY_NOTICES.md',
                          'scripts/python/vendor/token_usage/LICENSE', 'commands/report.md',
                          'scripts/python/usage_bridge/adapters/codex.py',
