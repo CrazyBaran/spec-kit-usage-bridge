@@ -21,7 +21,7 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "extension": {
         "id": "usage-bridge",
         "name": "Usage Bridge — token-usage for Spec Kit",
-        "version": "0.1.0",
+        "version": "0.2.1",
         "description": "Bridges token-usage into Spec Kit: automatic per-phase, per-feature token & cost audit of the "
                        "SDD flow across sessions, from agent transcripts.",
         "author": "CrazyBaran",
@@ -39,8 +39,10 @@ EXPECTED_MANIFEST = {  # spec §6.1
     },
     "provides": {
         "commands": [
+            {"name": "speckit.usage-bridge.checkpoint", "file": "commands/checkpoint.md",
+             "description": "Bind one observed phase invocation to its explicit feature"},
             {"name": "speckit.usage-bridge.capture", "file": "commands/capture.md",
-             "description": "Refresh the token-usage audit now (also runs automatically after every turn)"},
+             "description": "Refresh the token-usage audit now (automatic when native events are delivered)"},
             {"name": "speckit.usage-bridge.report", "file": "commands/report.md",
              "description": "Token usage audit per feature / phase / session"},
             {"name": "speckit.usage-bridge.check", "file": "commands/check.md",
@@ -51,20 +53,23 @@ EXPECTED_MANIFEST = {  # spec §6.1
              "description": "Usage Bridge settings", "required": False},
         ],
     },
-    "events": {"stop": {"command": "speckit.usage-bridge.capture", "timeout": 30}},
+    "events": {"stop": {"command": "speckit.usage-bridge.capture", "timeout": 30},
+               "user_prompt_submit": {"command": "speckit.usage-bridge.capture", "timeout": 30}},
     "hooks": {
+        "after_specify": {"command": "speckit.usage-bridge.checkpoint", "optional": False,
+                          "description": "Bind this specify invocation to its resolved feature"},
         "before_specify": {"command": "speckit.usage-bridge.check", "optional": False,
                            "description": "Usage Bridge capture sanity check"},
         "after_implement": {"command": "speckit.usage-bridge.report", "optional": True,
                             "prompt": "Show the token usage audit for this feature?"},
     },
-    "tags": ["tokens", "cost", "observability", "token-usage", "claude-code"],
+    "tags": ["tokens", "cost", "observability", "token-usage", "claude-code", "codex", "cursor"],
 }
 
 SPEC_BODIES = {  # spec §6.2, verbatim
     "capture": (
         "Run `{SCRIPT}` from the project root and relay its one-line summary. Do not compute or add numbers.\n"
-        "This command also runs automatically after every agent turn; use it only to force a refresh."
+        "Automatic capture requires native event delivery; use this command to refresh manually."
     ),
     "report": (
         "Run `{SCRIPT} $ARGUMENTS` from the project root. It refreshes the audit, then prints a Markdown report.\n"
@@ -104,7 +109,7 @@ def load_entrypoint(name, monkeypatch):
     return module
 
 
-@pytest.mark.parametrize("name", ["capture.py", "report.py", "check.py"])
+@pytest.mark.parametrize("name", ["capture.py", "report.py", "check.py", "checkpoint.py"])
 def test_entrypoints_parse_with_python36_grammar(name):
     ast.parse((ROOT / "scripts/python" / name).read_text(encoding="utf-8"), feature_version=(3, 6))
 
@@ -135,7 +140,7 @@ def test_report_entrypoint_prints_utf8(tmp_path):
 
 def test_check_entrypoint_reports_findings(tmp_path):
     p = run_script("check", make_repo(tmp_path))
-    assert p.returncode == 1 and "FAIL integration: Run specify integration install claude" in p.stdout.decode()
+    assert p.returncode == 1 and "FAIL integration: Install a supported Spec Kit integration" in p.stdout.decode()
 
 
 @pytest.mark.parametrize("name,code,expected", [
@@ -195,4 +200,5 @@ def test_config_template_is_the_spec_block():
     assert yaml.safe_load(text) == {
         "enabled": True, "output": {"dir": "{feature_dir}"}, "transcripts": {"extra_dirs": []},
         "pricing": {"overrides": {}}, "privacy": {"prompt_previews": False}, "capture": {"deadline_seconds": 15},
-        "log": {"level": "info"}}
+        "log": {"level": "info"}, "runtimes": {"enabled": ["claude", "codex", "cursor"],
+        "codex": {"extra_dirs": []}, "cursor": {"extra_dirs": [], "data_dir": ""}}}

@@ -10,12 +10,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from . import tu_compat
+from .adapters import get_adapter
+from .adapters.base import ParseContext
 from .config import Config, load_config
 from .discovery import SessionFiles, discover, projects_roots
 from .log import LOG_REL
@@ -31,9 +35,8 @@ NOT_RUNNING_AFTER = timedelta(days=1)
 
 PYTHON_FIX = ("Install Python 3.9+ with python3 or python on PATH (or in the project .venv), "
               "then run specify extension add usage-bridge again.")
-INTEGRATION_FIX = ("Run specify integration install claude, or specify extension disable usage-bridge "
-                   "if this project does not use Claude Code.")
-CURSOR_WARNING = "Cursor capture is not supported in v0.1."
+INTEGRATION_FIX = ("Install a supported Spec Kit integration (claude, codex or cursor-agent), "
+                   "or enable an installed runtime in usage-bridge-config.yml.")
 EVENTS_FIX = ("Runtime events are disabled or were removed. "
               'Run: specify integration upgrade claude --integration-options="--events true"')
 GIT_WARNING = "git not found: branch fallback and worktree discovery are off."
@@ -64,19 +67,22 @@ def _python(version: Sequence[int]) -> CheckResult:
     return CheckResult("python", FAIL, ok, f"Python {major}.{minor}", "" if ok else PYTHON_FIX)
 
 
-def _integration(project: Path) -> list[CheckResult]:
+def _installed(project: Path) -> set[str]:
     doc = _read_json(project / ".specify" / "integration.json")
     doc = doc if isinstance(doc, dict) else {}
     installed = doc.get("installed_integrations")
     keys = {k for k in installed if isinstance(k, str)} if isinstance(installed, list) else set()
     keys |= {v for v in (doc.get("default_integration"), doc.get("integration")) if isinstance(v, str)}
-    if "claude" in keys:
+    return {"cursor" if key in ("cursor", "cursor-agent") else key for key in keys}
+
+
+def _integration(project: Path, enabled: Sequence[str] = ("claude", "codex", "cursor")) -> list[CheckResult]:
+    keys = _installed(project) & set(enabled) & {"claude", "codex", "cursor"}
+    if keys == {"claude"}:
         return [CheckResult("integration", FAIL, True, "Claude Code integration installed", "")]
-    results = [CheckResult("integration", FAIL, False,
-                           "Claude Code is not installed per .specify/integration.json", INTEGRATION_FIX)]
-    if any(k.startswith("cursor") for k in keys):
-        results.append(CheckResult("integration", WARN, False, CURSOR_WARNING, ""))
-    return results
+    return [CheckResult("integration", FAIL, bool(keys),
+                        "Supported integrations: " + ", ".join(sorted(keys)) if keys else "No supported integration",
+                        "" if keys else INTEGRATION_FIX)]
 
 
 def _stop_commands(settings: Any) -> list[str]:
@@ -204,10 +210,40 @@ def run_checks(project: Path, env: Mapping[str, str], now: datetime,
     """All checks in the spec's order (the Cursor warning follows ``integration``)."""
     project = Path(project)
     cfg = load_config(project, env)
-    transcripts, sessions = _transcripts(project, env, cfg)
+    installed = _installed(project) & set(cfg.runtime_names)
+    if "claude" in installed:
+        transcripts, sessions = _transcripts(project, env, cfg)
+    else:
+        transcripts, sessions = CheckResult("transcripts", WARN, True, "Claude history not required", ""), []
     runtime_result, runtime = _runtime(project)
-    return [_python(python_version), *_integration(project), _stop_hook(project), _dispatcher(project), _git(project),
-            transcripts, runtime_result, _last_capture(runtime, sessions, now), *_config(cfg)]
+    native = []
+    for name in sorted(installed - {"claude"}):
+        native.append(CheckResult(name + ".capture-mode", WARN, True,
+                                  "manual capture available; automatic native delivery unverified", ""))
+        native.append(CheckResult(name + ".measurement", WARN, True,
+                                  "best available measured tokens or activity; missing counts are unavailable", ""))
+        if runtime:
+            try:
+                context = ParseContext(tuple(worktrees(project) or [project]), env, runtime,
+                                       cfg.prompt_previews, time.monotonic() + 2, time.monotonic)
+                found = list(get_adapter(name).discover(context, cfg))
+                native.append(CheckResult(name + ".sources", WARN, bool(found), f"{len(found)} local sessions found",
+                                          "" if found else
+                                          "Run an agent turn or configure runtime source directories."))
+            except Exception as exc:  # noqa: BLE001 - optional sources are diagnostic failures.
+                native.append(CheckResult(name + ".sources", WARN, False, "source discovery unavailable",
+                                          type(exc).__name__ + ": use manual refresh after restoring local sources."))
+    try:
+        tu_compat.module()
+        vendor = CheckResult("vendor", FAIL, True, "vendored files verified", "")
+    except Exception:  # noqa: BLE001 - a damaged package must fail check rather than raise.
+        vendor = CheckResult("vendor", FAIL, False, "vendor integrity failed", "Reinstall the extension.")
+    hook = (_stop_hook(project) if "claude" in installed else
+            CheckResult("stop-hook", WARN, True, "manual capture: no Claude hook required", ""))
+    dispatcher = (_dispatcher(project) if "claude" in installed else
+                  CheckResult("dispatcher", WARN, True, "manual capture does not require the dispatcher", ""))
+    return [_python(python_version), *_integration(project, cfg.runtime_names), hook, dispatcher, _git(project),
+            transcripts, runtime_result, _last_capture(runtime, sessions, now), vendor, *native, *_config(cfg)]
 
 
 def _line(result: CheckResult) -> str:

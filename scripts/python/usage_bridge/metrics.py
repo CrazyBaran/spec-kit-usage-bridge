@@ -8,7 +8,9 @@ from typing import Any
 from . import tu_compat
 from .attribution import AttributedRun
 from .digest import Request, SessionDigest
+from .measurement import summarize
 from .phases import Run
+from .pricing import estimate
 from .timefmt import parse_ts
 from .tu_compat import Rates
 
@@ -63,6 +65,34 @@ def _summary(requests: list[Request], rates: Rates) -> dict[str, Any]:
 def run_summary(run: Run, rates: Rates) -> dict[str, Any]:
     sub_requests = [r for sub in run.subagents for r in sub.requests]
     everything = [*run.requests, *sub_requests]
+    if run.runtime != "claude":
+        summary = summarize(everything)
+        usage = dict(zip(USAGE_KEYS, (summary["usage"][key] for key in _VENDOR_KEYS)))
+        measured = dict(zip(USAGE_KEYS, (summary["measured_usage"][key] for key in _VENDOR_KEYS)))
+        estimates = [estimate(run.runtime, row.model, row.flat(), rates, row.measurement) for row in everything]
+        known_costs = [item["known_cost_usd"] for item in estimates if item["known_cost_usd"] is not None]
+        complete_costs = [item["cost_usd"] for item in estimates]
+        cost = (sum(complete_costs) if complete_costs and all(v is not None for v in complete_costs)
+                and run.measurement == "exact" else None)
+        if not everything:
+            usage = dict.fromkeys(USAGE_KEYS)
+            summary["measurement"] = "activity_only"
+        elif run.measurement != "exact":
+            coverage_reasons = (set(run.reasons) - set(summary["reasons"])
+                                - {"phase-interval-ambiguous", "parent-attribution-unresolved"})
+            if run.measurement == "activity_only" or summary["measurement"] == "exact" or coverage_reasons:
+                # Omitted observations invalidate complete buckets; unsupported
+                # fields within measured observations leave their other buckets known.
+                usage = dict.fromkeys(USAGE_KEYS)
+            summary["measurement"] = run.measurement
+        return {"calls": None, "observations": len(everything), "usage": usage,
+                "measured_usage": measured, "tokens": None if summary["measurement"] != "exact"
+                or any(v is None for v in usage.values())
+                else sum(usage.values()), "cost_usd": cost,
+                "known_cost_usd": sum(known_costs) if known_costs else None,
+                "measurement": summary["measurement"], "reasons": sorted(set(summary["reasons"] + run.reasons)),
+                "models": {}, "subagents": {"count": None, "usage": dict.fromkeys(USAGE_KEYS), "cost_usd": None},
+                "skills": list(run.skills)}
     base = _summary(everything, rates)
     models: dict[str, Any] = {}
     for model in sorted({r.model for r in everything}):
@@ -100,7 +130,7 @@ def session_facts(digest: SessionDigest) -> dict[str, Any]:
 
 def repriming(digest: SessionDigest, feature_runs: Sequence[Run], rates: Rates) -> dict[str, Any] | None:
     """What the session's first request re-loaded — only when that request belongs to these runs."""
-    if not digest.requests:
+    if not digest.capabilities.splitting or not digest.requests:
         return None
     first = digest.requests[0]
     if not any(r.request_id == first.request_id for run in feature_runs for r in run.requests):
@@ -140,6 +170,8 @@ def verdict(prev: SessionDigest, cur: SessionDigest, repriming_cost: float | Non
 
 def compactions(digest: SessionDigest, rates: Rates) -> list[dict[str, Any]]:
     """Each compaction and the cost of re-loading context in the first request after it."""
+    if not digest.capabilities.compaction:
+        return []
     found: list[dict[str, Any]] = []
     for index, event in enumerate(digest.events):
         if event.kind != "compact":
@@ -168,6 +200,26 @@ def completeness(digests: Sequence[SessionDigest], deadline_hit: bool) -> tuple[
 def session_entry(digest: SessionDigest, runs: Sequence[AttributedRun], rates: Rates, prev: SessionDigest | None,
                   keep_previews: bool) -> dict[str, Any]:
     """One per-author-file session object (spec §4.2); runs numbered per phase within the session."""
+    if digest.runtime != "claude":
+        counters: dict[str, int] = {}
+        run_objects = []
+        for attributed in sorted(runs, key=lambda a: (a.run.start_ts or "", a.run.label)):
+            run = attributed.run
+            counters[run.phase] = counters.get(run.phase, 0) + 1
+            obj = {"phase": run.phase, "kind": run.kind, "label": run.label, "run": counters[run.phase],
+                   "start_ts": run.start_ts, "end_ts": run.end_ts, "attributed_by": attributed.attributed_by,
+                   **run_summary(run, rates)}
+            if keep_previews:
+                obj["prompt_preview"] = run.prompt_preview
+            run_objects.append(obj)
+        from dataclasses import asdict
+
+        return {"session_id": digest.session_id, "runtime": digest.runtime, "measurement": digest.measurement,
+                "reasons": digest.reasons, "capabilities": asdict(digest.capabilities),
+                "attribution_confidence": digest.attribution_confidence, "first_ts": digest.first_ts,
+                "last_ts": digest.last_ts, "after_clear": False, "dominant_model": None, "main_calls": None,
+                "final_context_tokens": None, "repriming": None, "splitting": None, "compactions": [],
+                "runs": run_objects}
     facts = session_facts(digest)
     ordered = sorted(runs, key=lambda a: (a.run.start_ts or "", a.run.label))
     primed = repriming(digest, [a.run for a in ordered], rates)

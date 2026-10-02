@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .adapters.base import Capabilities
 from .digest import Request, SessionDigest, SubagentDigest
 
 CORE_PHASES = ("constitution", "specify", "clarify", "plan", "checklist", "tasks", "analyze", "implement",
@@ -49,6 +50,11 @@ class Run:
     last_branch: str | None = None
     prompt_preview: str | None = None
     after_clear: bool = False
+    runtime: str = "claude"
+    measurement: str = "exact"
+    reasons: list[str] = field(default_factory=list)
+    capabilities: Capabilities = field(default_factory=lambda: Capabilities(True, True, True, True))
+    attribution_confidence: str = "exact"
 
 
 def _lead(name: str) -> str:
@@ -126,14 +132,16 @@ def _branch_at(digest: SessionDigest, ts: str | None) -> str | None:
     return branch
 
 
-def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]:
+def build_runs(digest: SessionDigest, extension_ids: Sequence[str], *, include_empty: bool = False) -> list[Run]:
     runs: list[Run] = []
     current: Run | None = None
     first_request_event = digest.requests[0].event_index if digest.requests else None
     after_clear = False
 
     def open_run(kind: str, phase: str, label: str, ts: str | None, preview: str | None = None) -> Run:
-        run = Run(digest.session_id, kind, phase, label, ts, None, prompt_preview=preview)
+        run = Run(digest.session_id, kind, phase, label, ts, None, prompt_preview=preview,
+                  runtime=digest.runtime, measurement=digest.measurement, reasons=list(digest.reasons),
+                  capabilities=digest.capabilities, attribution_confidence=digest.attribution_confidence)
         runs.append(run)
         return run
 
@@ -172,6 +180,8 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
                     current.skills.append(event.name)
         for request in by_event.get(index, []):
             attach(request)
+        if current and event.ts:
+            current.end_ts = event.ts
 
     starts = [(run.start_ts, i) for i, run in enumerate(runs) if run.start_ts]
     for sub in digest.subagents:
@@ -187,10 +197,11 @@ def build_runs(digest: SessionDigest, extension_ids: Sequence[str]) -> list[Run]
 
     kept: list[Run] = []
     for run in runs:
-        if not run.requests and not any(sub.requests for sub in run.subagents):
+        if (not include_empty and digest.runtime == "claude" and not run.requests
+                and not any(sub.requests for sub in run.subagents)):
             continue
         stamps = [r.ts for r in run.requests if r.ts] + [s.last_ts for s in run.subagents if s.last_ts]
-        run.end_ts = max(stamps) if stamps else run.start_ts
+        run.end_ts = max(stamps) if stamps else (run.end_ts or run.start_ts)
         last_main = run.requests[-1].ts if run.requests else run.end_ts
         run.last_branch = _branch_at(digest, last_main)
         run.after_clear = after_clear

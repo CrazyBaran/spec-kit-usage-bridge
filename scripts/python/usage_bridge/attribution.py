@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
+from .bindings import FeatureBinding
 from .digest import SessionDigest
 from .phases import Run
 from .timeline import TimelineEntry, relative_dir
@@ -39,21 +40,23 @@ def _synthetic(request_id: str) -> bool:
 
 def dedup_across_sessions(digests: Sequence[SessionDigest]) -> tuple[list[SessionDigest], int]:
     """Drop requests already seen in an earlier session (a forked/copied transcript keeps the original)."""
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     dropped = 0
     result: list[SessionDigest] = []
     for digest in sorted(digests, key=lambda d: (d.first_ts or "", d.session_id)):
-        requests = [r for r in digest.requests if _synthetic(r.request_id) or r.request_id not in seen]
+        requests = [r for r in digest.requests if _synthetic(r.request_id)
+                    or (digest.runtime, r.request_id) not in seen]
         subagents = []
         for sub in digest.subagents:
-            kept = [r for r in sub.requests if _synthetic(r.request_id) or r.request_id not in seen]
+            kept = [r for r in sub.requests if _synthetic(r.request_id)
+                    or (digest.runtime, r.request_id) not in seen]
             dropped += len(sub.requests) - len(kept)
             subagents.append(replace(sub, requests=kept))
         dropped += len(digest.requests) - len(requests)
         result.append(replace(digest, requests=requests, subagents=subagents))
-        seen.update(r.request_id for r in requests)
+        seen.update((digest.runtime, r.request_id) for r in requests)
         for sub in subagents:
-            seen.update(r.request_id for r in sub.requests)
+            seen.update((digest.runtime, r.request_id) for r in sub.requests)
     return result, dropped
 
 
@@ -99,6 +102,9 @@ def resolve_branch(branch: str | None, known: Sequence[str]) -> str | None:
 
 def _timeline_feature(run: Run, entries: Sequence[TimelineEntry]) -> str | None:
     if not run.requests:
+        if run.runtime != "claude" and run.end_ts:
+            return next((entry.feature_dir for entry in entries
+                         if entry.last_event_ts == run.end_ts and entry.ts >= run.end_ts), None)
         return None
     closing = run.requests[-1]
     if not closing.ts:
@@ -111,14 +117,23 @@ def _timeline_feature(run: Run, entries: Sequence[TimelineEntry]) -> str | None:
 
 
 def attribute_runs(runs: Sequence[Run], timeline_by_session: Mapping[str, list[TimelineEntry]],
-                   known: Sequence[str]) -> list[AttributedRun]:
+                   known: Sequence[str], bindings: Sequence[FeatureBinding] = ()) -> list[AttributedRun]:
     known_set = set(known)
     attributed: list[AttributedRun] = []
     for run in runs:
         if run.phase == "constitution":
             attributed.append(AttributedRun(run, Bucket("project", None), "none"))
             continue
-        feature = _timeline_feature(run, timeline_by_session.get(run.session_id, []))
+        bound = [b.feature_dir for b in bindings
+                 if (b.runtime, b.session_id, b.phase, b.invocation_ts)
+                 == (run.runtime, run.session_id, run.phase, run.start_ts)]
+        if len(bound) == 1 and bound[0] in known_set:
+            attributed.append(AttributedRun(run, Bucket("feature", bound[0]), "binding"))
+            continue
+        entries = timeline_by_session.get((run.runtime, run.session_id), [])
+        if run.runtime == "claude" and not entries:
+            entries = timeline_by_session.get(run.session_id, [])
+        feature = _timeline_feature(run, entries)
         if feature and feature in known_set:
             attributed.append(AttributedRun(run, Bucket("feature", feature), "timeline"))
             continue

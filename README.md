@@ -1,7 +1,8 @@
 # Usage Bridge — token-usage for Spec Kit
 
 Usage Bridge connects [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) to
-[Spec Kit](https://github.com/github/spec-kit). It captures Claude Code transcript usage after each turn and writes a
+[Spec Kit](https://github.com/github/spec-kit). Version 0.2.1 reads Claude Code transcripts, local Codex rollouts and
+best-available Cursor history/activity, and writes a
 per-feature, per-phase token and estimated cost audit beside the feature's spec. Reports combine sessions and authors,
 include subagent usage, and remove duplicate API requests from resumed sessions.
 
@@ -18,9 +19,20 @@ local paths unless prompt previews are explicitly enabled.
 
 ## Install
 
-Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and Claude Code integration. Git is recommended for
+Version 0.2.1 adds an explicit checkpoint command; upgrade/reinstall the extension
+in each project to receive the new command and after-specify workflow hook. A
+development checkout uses `specify extension add D:/spec-kit-usage-bridge --dev`;
+published installations use the catalog update procedure below. This branch's
+version bump does not itself publish a release.
+
+Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and a Claude, Codex or Cursor integration. Git is recommended for
 branch and worktree attribution. Capture is automatic through the Claude `Stop` hook after the extension and Claude
 runtime events are configured.
+
+Codex and Cursor automatic capture is **manual/unverified** until authenticated native
+event delivery is demonstrated. Manual capture and report commands work across runtimes.
+The pinned Spec Kit dispatcher install/dispatch/remove tests pass for all three integrations
+on Windows. See [native verification](docs/native-smoke.md) for the tested scope.
 
 Add the install-allowed catalog and install the extension in a Spec Kit project:
 
@@ -45,15 +57,15 @@ python .specify/extensions/usage-bridge/scripts/python/check.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-The check reports missing Python, Claude integration or runtime events as failures. Transcript discovery and git issues
-are warnings. Cursor projects receive a warning because Cursor capture is not supported in v0.1.
+The check reports missing Python or a supported enabled integration as failures. Optional history
+discovery and git issues are warnings. Codex/Cursor checks explicitly report unverified native delivery.
 
 ## Commands
 
 - `/speckit-usage-bridge-report [feature-id | --all] [--json]` refreshes capture and prints a feature report or a
   cross-feature rollup. With no feature argument it selects the active or most recently active feature.
 - `/speckit-usage-bridge-check [--verbose] [--json]` checks the integration and environment. A failure exits 1.
-- `/speckit-usage-bridge-capture` forces a manual refresh; normal capture runs after each turn. Hook capture is silent
+- `/speckit-usage-bridge-capture` forces a manual refresh; automatic capture requires native event delivery. Hook capture is silent
   and exits 0 so reporting problems do not interrupt the agent.
 
 ## Configuration
@@ -68,6 +80,13 @@ output:
   dir: "{feature_dir}"
 transcripts:
   extra_dirs: []
+runtimes:
+  enabled: [claude, codex, cursor]
+  codex:
+    extra_dirs: []
+  cursor:
+    extra_dirs: []
+    data_dir: ""
 pricing:
   overrides: {}
 privacy:
@@ -140,3 +159,42 @@ Usage Bridge is licensed under the MIT License; see [LICENSE](LICENSE).
 | Implementation plan | Complete |
 | v0.1.0 implementation and tests | Complete |
 | First release | Prepared; not published |
+
+## Explicit feature checkpoints (v0.2.1)
+
+If a session started on another branch, its transcript may retain that old branch
+when specify creates a feature. A checkpoint binds one observed phase invocation
+to the feature you explicitly select, for Claude, Codex and Cursor. It preserves
+measurement quality and never manufactures missing counts.
+
+The after-specify workflow checkpoint passes its resolved feature and phase. Later
+core and extension phases need their own checkpoint. Invoke speckit.usage-bridge.checkpoint
+or run these commands from the project root:
+
+```powershell
+# Preview the latest clarify invocation in the verified session.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase clarify --latest
+# Apply the selected invocation and refresh reports.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase clarify --latest --apply
+# Switching features requires another explicit checkpoint.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-C --phase superspec.brainstorm --latest --apply
+# Preview historical specify repair independently of ongoing work.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase specify --invocation-ts 2026-10-01T08:00:02.000Z
+```
+
+Replace SESSION with the verified native session ID and FEATURE-B/C with existing
+directories inside this checkout. Codex may omit runtime/session flags when its
+shell supplies CODEX_THREAD_ID. Claude and Cursor require explicit IDs. Both
+--feature and --phase are required. Repeated matching phases need an invocation
+timestamp or explicit --latest. A helper brainstorming skill keeps its surrounding
+phase; it does not create a separate Superspec command phase.
+
+Manual use previews without changing bindings or feature reports; --apply persists
+the selection. A binding affects one invocation only, never the entire session.
+Earlier history needs its own explicitly selected repair. Raw transcripts and
+other contributors' source files remain unchanged; locally repairing an invocation
+does not repair copies committed by another contributor. Bindings live in private
+Git runtime state and are not shared across machines. If saving succeeds but report
+refresh fails, retry capture: the saved binding survives. Workflow mode warns
+without blocking specification work. Later-phase automatic capture does not follow
+from the initial checkpoint, and Codex/Cursor native delivery remains unverified.

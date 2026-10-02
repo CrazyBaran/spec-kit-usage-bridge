@@ -55,3 +55,24 @@ def test_nonfinite_deadlines_fall_back_with_warning(tmp_path):
         cfg = load_config(tmp_path, {'SPECKIT_USAGE_BRIDGE_CAPTURE_DEADLINE_SECONDS': value})
         assert cfg.deadline_seconds == 15.0
         assert any('deadline_seconds' in warning for warning in cfg.warnings)
+
+
+def test_runtime_defaults_and_environment_precedence(tmp_path):
+    from usage_bridge.config import load_config
+
+    cfg = load_config(tmp_path, {})
+    assert cfg.runtime_names == ["claude", "codex", "cursor"]
+    cfg = load_config(tmp_path, {"SPECKIT_USAGE_BRIDGE_RUNTIMES_ENABLED": "codex",
+                                 "SPECKIT_USAGE_BRIDGE_RUNTIMES_CURSOR_DATA_DIR": "custom"})
+    assert cfg.runtime_names == ["codex"]
+    assert cfg.cursor_data_dir == "custom"
+
+
+def test_empty_and_unknown_runtimes(tmp_path):
+    from usage_bridge.config import load_config
+
+    assert load_config(tmp_path, {"SPECKIT_USAGE_BRIDGE_RUNTIMES_ENABLED": ""}).runtime_names == []
+    cfg = load_config(tmp_path, {"SPECKIT_USAGE_BRIDGE_RUNTIMES_ENABLED": "unsupported"})
+    assert cfg.runtime_names == []
+    assert any("unsupported" in warning for warning in cfg.warnings)
+

@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from . import tu_compat
+from .adapters.base import Capabilities
 from .discovery import SessionFiles
 from .timefmt import norm_ts
 
-DIGEST_VERSION = 1
+DIGEST_VERSION = 2
 PREVIEW_CHARS = 120
 
 
@@ -33,6 +34,8 @@ class Event:
     pre_tokens: int | None = None
     post_tokens: int | None = None
     prompt: str | None = None
+    ordinal: int | None = None
+    native_id: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -47,12 +50,15 @@ class Request:
     request_id: str
     ts: str | None
     model: str
-    input: int
-    output: int
-    cache_read: int
-    cache_5m: int
-    cache_1h: int
+    input: int | None
+    output: int | None
+    cache_read: int | None
+    cache_5m: int | None
+    cache_1h: int | None
     event_index: int
+    kind: str = "request"
+    measurement: str = "exact"
+    reasons: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -61,7 +67,7 @@ class Request:
     def from_json(cls, data: dict[str, Any]) -> Request:
         return cls(**data)
 
-    def flat(self) -> dict[str, int]:
+    def flat(self) -> dict[str, int | None]:
         return {"input": self.input, "output": self.output, "cache_read": self.cache_read,
                 "cache_5m": self.cache_5m, "cache_1h": self.cache_1h}
 
@@ -101,6 +107,12 @@ class SessionDigest:
     events: list[Event] = field(default_factory=list)
     requests: list[Request] = field(default_factory=list)
     subagents: list[SubagentDigest] = field(default_factory=list)
+    runtime: str = "claude"
+    measurement: str = "exact"
+    reasons: list[str] = field(default_factory=list)
+    capabilities: Capabilities = field(default_factory=lambda: Capabilities(True, True, True, True))
+    attribution_confidence: str = "exact"
+    parent_identity: tuple[str, str] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -110,6 +122,9 @@ class SessionDigest:
             "events": [e.to_json() for e in self.events],
             "requests": [r.to_json() for r in self.requests],
             "subagents": [s.to_json() for s in self.subagents],
+            "runtime": self.runtime, "measurement": self.measurement, "reasons": list(self.reasons),
+            "capabilities": asdict(self.capabilities), "attribution_confidence": self.attribution_confidence,
+            "parent_identity": self.parent_identity,
         }
 
     @classmethod
@@ -121,6 +136,10 @@ class SessionDigest:
             [Event.from_json(e) for e in data.get("events", [])],
             [Request.from_json(r) for r in data.get("requests", [])],
             [SubagentDigest.from_json(s) for s in data.get("subagents", [])],
+            data.get("runtime", "claude"), data.get("measurement", "exact"), list(data.get("reasons", [])),
+            Capabilities(**data.get("capabilities", asdict(Capabilities(True, True, True, True)))),
+            data.get("attribution_confidence", "exact"),
+            tuple(data["parent_identity"]) if data.get("parent_identity") else None,
         )
 
 

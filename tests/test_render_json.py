@@ -26,7 +26,7 @@ def test_author_file_shape_and_sorting():
     f = author_file("001-a", "specs/001-a", "jakub", "a1b2c3", {"usage_bridge": "0.1.0"}, [s1, s0], "complete", [], [])
     assert list(f) == ["schema", "schema_version", "feature", "author", "generator", "runtime", "completeness",
                        "partial_reasons", "data_as_of", "unpriced_models", "sessions"]
-    assert (f["schema"], f["schema_version"], f["runtime"]) == ("usage-bridge/feature-usage", 1, "claude")
+    assert (f["schema"], f["schema_version"], f["runtime"]) == ("usage-bridge/feature-usage", 2, "claude")
     assert [s["session_id"] for s in f["sessions"]] == ["a", "b"] and f["data_as_of"] == "2026-09-30T09:00:00.000Z"
     assert f["feature"] == {"id": "001-a", "directory": "specs/001-a"} and f["author"] == {"name": "jakub",
                                                                                            "machine": "a1b2c3"}

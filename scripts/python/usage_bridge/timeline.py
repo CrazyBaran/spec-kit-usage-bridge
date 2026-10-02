@@ -29,6 +29,8 @@ class TimelineEntry:
     branch: str | None
     last_request_id: str | None = None
     last_request_ts: str | None = None
+    runtime: str = "claude"
+    last_event_ts: str | None = None
 
 
 def relative_dir(value: str, work: Path) -> str | None:
@@ -106,6 +108,8 @@ def read(runtime: Path) -> list[TimelineEntry]:
             branch if isinstance(branch, str) else None,
             data.get("last_request_id") if isinstance(data.get("last_request_id"), str) else None,
             norm_ts(data.get("last_request_ts")),
+            data.get("runtime", "claude"),
+            norm_ts(data.get("last_event_ts")),
         ))
     return entries
 
@@ -113,7 +117,9 @@ def read(runtime: Path) -> list[TimelineEntry]:
 def by_session(entries: Iterable[TimelineEntry]) -> dict[str, list[TimelineEntry]]:
     grouped: dict[str, list[TimelineEntry]] = {}
     for entry in entries:
-        grouped.setdefault(entry.session_id, []).append(entry)
+        grouped.setdefault((entry.runtime, entry.session_id), []).append(entry)
+        if entry.runtime == "claude":
+            grouped.setdefault(entry.session_id, []).append(entry)
     for items in grouped.values():
         items.sort(key=lambda e: e.ts)
     return grouped

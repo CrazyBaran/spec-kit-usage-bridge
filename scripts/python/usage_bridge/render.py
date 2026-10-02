@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from .phases import CORE_PHASES
+from .report_coverage import enhance, render_mixed
+from .schema import normalize_source
 from .timefmt import parse_ts
 
 SCHEMA_FEATURE = "usage-bridge/feature-usage"
 SCHEMA_REPORT = "usage-bridge/feature-report"
 SCHEMA_REPO = "usage-bridge/repo-report"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RUNTIME = "claude"
 EMPTY = "—"
 USAGE_KEYS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
@@ -44,8 +46,10 @@ PARTIAL_TEXT = {
 
 # -- formatting ----------------------------------------------------------------------------------
 
-def fmt_tokens(n: int) -> str:
+def fmt_tokens(n: int | None) -> str:
     """Compact token count: 999, 4.1k, 212k, 17.6M."""
+    if n is None:
+        return EMPTY
     n = int(n or 0)
     if n < 1000:
         return str(n)
@@ -98,7 +102,8 @@ def author_file(feature_id: str, feature_dir: str, author: str, machine: str, ge
         "feature": {"id": feature_id, "directory": feature_dir},
         "author": {"name": author, "machine": machine},
         "generator": dict(generator),
-        "runtime": RUNTIME,
+        "runtime": (next(iter({s.get("runtime", "claude") for s in ordered}))
+                    if len({s.get("runtime", "claude") for s in ordered}) == 1 else "mixed") if ordered else RUNTIME,
         "completeness": completeness,
         "partial_reasons": list(partial_reasons),
         "data_as_of": max(stamps) if stamps else None,
@@ -201,7 +206,8 @@ def snapshot_revision(session: dict[str, Any]) -> int:
 
 def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     """Merge per-author source files into one feature report (schema usage-bridge/feature-report v1)."""
-    ordered = sorted(sources, key=lambda s: (s["author"]["name"], s["author"].get("machine", "")))
+    ordered = sorted((normalize_source(src) for src in sources),
+                     key=lambda s: (s["author"]["name"], s["author"].get("machine", "")))
     feature = dict(ordered[0]["feature"]) if ordered else {"id": "", "directory": ""}
     sessions: list[dict[str, Any]] = []
     runs: list[dict[str, Any]] = []
@@ -213,7 +219,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
         author = src["author"]["name"]
         machine = src["author"].get("machine") or "author:" + author
         for sess in src.get("sessions", []):
-            key = (machine, sess["session_id"])
+            key = (machine, sess.get("runtime", "claude"), sess["session_id"])
             calls = sum(int(r.get("calls") or 0) for r in sess.get("runs", []))
             rank = (snapshot_revision(sess), sess.get("last_ts") or "", calls, dump_json(sess), author)
             if key not in snapshots or rank > snapshots[key][0]:
@@ -224,7 +230,9 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
         sessions.append(sess)
         for run in sess.get("runs", []):
             if run.get("phase") != "constitution":
-                runs.append({**run, "author": sess["author"], "session_id": sess["session_id"]})
+                runs.append({**run, "author": sess["author"], "session_id": sess["session_id"],
+                             "runtime": sess.get("runtime", "claude"),
+                             "measurement": run.get("measurement", sess.get("measurement", "exact"))})
     runs.sort(key=lambda r: (r.get("start_ts") or "", r["session_id"], r.get("label") or ""))
     counters: dict[str, int] = {}
     for run in runs:
@@ -235,7 +243,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     for run in runs:
         row = grouped.setdefault(run["phase"], {"phase": run["phase"], "kind": run.get("kind", "core"),
                                                 "sessions": set(), "calls": 0, "usage": _zero(), "costs": []})
-        row["sessions"].add((run["author"], run["session_id"]))
+        row["sessions"].add((run["author"], run["runtime"], run["session_id"]))
         row["calls"] += int(run.get("calls") or 0)
         _add_usage(row["usage"], run.get("usage") or {})
         row["costs"].append(run.get("cost_usd"))
@@ -248,7 +256,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     total_usage = _zero()
     for run in runs:
         _add_usage(total_usage, run.get("usage") or {})
-    session_keys = {(s["author"], s["session_id"]) for s in sessions}
+    session_keys = {(s["author"], s.get("runtime", "claude"), s["session_id"]) for s in sessions}
 
     ordered_sessions = sorted(sessions, key=lambda s: (s.get("first_ts") or "", s["author"], s["session_id"]))
     splitting = []
@@ -269,7 +277,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
                if index in retained_sources or not src.get("sessions")]
     partial = any(src.get("completeness") == "partial" for src in ordered)
     stamps = [src.get("data_as_of") for src in ordered if src.get("data_as_of")]
-    return {
+    report = {
         "schema": SCHEMA_REPORT,
         "schema_version": SCHEMA_VERSION,
         "feature": feature,
@@ -288,6 +296,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "compactions": compactions,
         "unpriced_models": sorted({m for src in ordered for m in src.get("unpriced_models", [])}),
     }
+    return enhance(report, sessions, runs)
 
 
 def _header(rep: dict[str, Any]) -> str:
@@ -357,6 +366,8 @@ def _compactions_line(compactions: list[dict[str, Any]]) -> str:
 def render_feature_md(sources: Sequence[dict[str, Any]]) -> str:
     """The merged ``token-usage.md`` (spec §4.1): byte-identical for the same set of sources."""
     rep = merge_feature(sources)
+    if any(runtime != "claude" for runtime in rep["runtimes"]):
+        return render_mixed(rep, fmt_tokens, fmt_cost)
     lines = [GENERATED_COMMENT, f"# Token usage — {rep['feature'].get('id', '')}", "", _header(rep), "",
              _headline(rep), "",
              "| Phase | Sessions | Calls | Input | Output | Cache read | Cache write | Est. $ |",
@@ -436,6 +447,9 @@ def merge_all(features: Sequence[dict[str, Any]], project: dict[str, Any],
     ordered = sorted(features, key=lambda f: f["feature"].get("id", ""))
     rows = [{"id": f["feature"].get("id"), "directory": f["feature"].get("directory"),
              "sessions": f["totals"]["sessions"], "calls": f["totals"]["calls"], "tokens": f["totals"]["tokens"],
+             "measured_tokens": f["totals"].get("measured_tokens", f["totals"]["tokens"]),
+             "measurement": f.get("measurement", "exact"), "runtimes": f.get("runtimes", ["claude"]),
+             "known_cost_usd": f["totals"].get("known_cost_usd", f["totals"]["cost_usd"]),
              "cost_usd": f["totals"]["cost_usd"], "phases": [p["phase"] for p in f["phases"]]} for f in ordered]
     stats: dict[str, dict[str, Any]] = {}
     for f in ordered:
@@ -447,8 +461,9 @@ def merge_all(features: Sequence[dict[str, Any]], project: dict[str, Any],
     for phase, entry in sorted(stats.items(), key=lambda kv: _phase_key(kv[0], kv[1]["kind"])):
         known = [c for c in entry["costs"] if c is not None]
         averages.append({"phase": phase, "kind": entry["kind"], "features": len(entry["tokens"]),
-                         "avg_tokens": round(sum(entry["tokens"]) / len(entry["tokens"])),
-                         "avg_cost_usd": sum(known) / len(known) if known else None})
+                         "avg_tokens": (round(sum(entry["tokens"]) / len(entry["tokens"]))
+                                        if all(value is not None for value in entry["tokens"]) else None),
+                         "avg_cost_usd": sum(known) / len(known) if len(known) == len(entry["costs"]) else None})
     return {"schema": SCHEMA_REPO, "schema_version": SCHEMA_VERSION, "features": rows, "phase_averages": averages,
             "project": dict(project), "unattributed": dict(unattributed)}
 
@@ -459,7 +474,8 @@ def render_all_md(report: dict[str, Any]) -> str:
         lines += ["| Feature | Sessions | Calls | Tokens | Est. $ | Phases |", "|---|--:|--:|--:|--:|---|"]
         for row in report["features"]:
             phases = ", ".join(_display(p) for p in row["phases"]) or EMPTY
-            lines.append(f"| {row['id']} | {row['sessions']} | {row['calls']} | {fmt_tokens(row['tokens'])} | "
+            calls = EMPTY if row['calls'] is None else str(row['calls'])
+            lines.append(f"| {row['id']} | {row['sessions']} | {calls} | {fmt_tokens(row['tokens'])} | "
                          f"{_cell_cost(row['cost_usd'])} | {phases} |")
         lines += ["", "## Average per phase", "", "| Phase | Features | Avg tokens | Avg est. $ |", "|---|--:|--:|--:|"]
         for row in report["phase_averages"]:
@@ -470,7 +486,8 @@ def render_all_md(report: dict[str, Any]) -> str:
     lines += ["", "## Outside features", "", "| Bucket | Sessions | Calls | Tokens | Est. $ |", "|---|--:|--:|--:|--:|"]
     for label, data in (("project (constitution, this machine only)", report["project"]),
                         ("unattributed (this machine only)", report["unattributed"])):
-        lines.append(f"| {label} | {data.get('sessions', 0)} | {data.get('calls', 0)} | "
+        calls = EMPTY if data.get('calls', 0) is None else str(data.get('calls', 0))
+        lines.append(f"| {label} | {data.get('sessions', 0)} | {calls} | "
                      f"{fmt_tokens(data.get('tokens', 0))} | {_cell_cost(data.get('cost_usd'))} |")
     lines += ["", *DISCLAIMER]
     return "\n".join(lines) + "\n"

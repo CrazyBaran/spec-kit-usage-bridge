@@ -15,6 +15,7 @@ import io
 import json
 import math
 import os
+import subprocess
 import sys
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
@@ -217,3 +218,70 @@ def cost(by_model: Mapping[str, Mapping[str, int]], rates: Rates) -> float | Non
 
 def unpriced(by_model: Mapping[str, Mapping[str, int]], rates: Rates) -> list[str]:
     return module().unpriced_models(_buckets(by_model), rates.table)
+
+
+@contextlib.contextmanager
+def _cursor_environment(ledger_root: Path, data_root: Path | None):
+    names = ("TOKEN_USAGE_LEDGER_DIR", "TOKEN_USAGE_CURSOR_DIR")
+    saved = {name: os.environ.get(name) for name in names}
+    os.environ["TOKEN_USAGE_LEDGER_DIR"] = str(ledger_root.parent)
+    if data_root is not None:
+        os.environ["TOKEN_USAGE_CURSOR_DIR"] = str(data_root)
+    try:
+        with _quiet():
+            yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _cursor_worker_command() -> list[str]:
+    return [sys.executable, "-B", str(Path(__file__).resolve().parent / "cursor_worker.py")]
+
+
+def _cursor_bounded(request: dict[str, Any], timeout: float) -> Any:
+    if timeout <= 0:
+        raise TimeoutError("Cursor capture deadline reached")
+    env = dict(os.environ)
+    root = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = root + os.pathsep + env.get("PYTHONPATH", "")
+    try:
+        result = subprocess.run(_cursor_worker_command(), input=json.dumps(request).encode("utf-8"),
+                                capture_output=True, env=env, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("Cursor source operation exceeded capture deadline") from exc
+    if result.returncode:
+        raise RuntimeError("Cursor source worker failed")
+    return json.loads(result.stdout)
+
+
+def cursor_sessions(project: Path, ledger_root: Path, data_root: Path | None,
+                    timeout: float | None = None) -> list[object]:
+    if timeout is not None:
+        rows = _cursor_bounded({"operation": "discover", "project": str(project), "ledger": str(ledger_root),
+                                "data": str(data_root) if data_root else None}, timeout)
+        return [module().CursorSession(**row) for row in rows]
+    # Vendor appends /cursor to its ledger root. Bridge storage is /cursor-ledgers/cursor.
+    with _cursor_environment(ledger_root / "cursor", data_root):
+        return list(module().get_runtime_adapter("cursor").iter_sessions(project_dir=project))
+
+
+def cursor_parse(source: object, timeout: float | None = None) -> dict[str, Any]:
+    if timeout is not None:
+        fields = {key: str(getattr(source, key)) if getattr(source, key) is not None else None
+                  for key in module().CursorSession.__slots__}
+        return _cursor_bounded({"operation": "parse", "source": fields}, timeout)
+    with _quiet():
+        return module().get_runtime_adapter("cursor").parse(source)
+
+
+def cursor_export(path: Path, *, timeout: float | None = None, checkouts=()):
+    if timeout is not None:
+        row = _cursor_bounded({"operation": "export", "path": str(path),
+                               "checkouts": [str(root) for root in checkouts]}, timeout)
+        return module().CursorSession(**row) if row else None
+    with _quiet():
+        return module().get_runtime_adapter("cursor").locate(str(path))

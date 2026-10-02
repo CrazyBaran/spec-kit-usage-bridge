@@ -5,6 +5,15 @@ from a version tag after CI passes; creating tags and publishing releases requir
 
 ## Release contents
 
+Version 0.2.0 writes schema v2 and reads existing v1 author reports as exact Claude
+data. Upgrade **all contributors** before sharing new reports. Downgrading writers
+to v0.1 is unsupported; restore a backup if a downgrade is necessary. Existing
+configuration files keep their settings and use default runtime settings when omitted.
+
+The archive includes the local Codex adapter, Cursor bridge adapter and OpenAI
+pricing table. Vendor hashes are unchanged. Codex and Cursor authenticated automatic
+delivery remains manual/unverified; see [native smoke coverage](native-smoke.md).
+
 The release workflow runs CI, builds `usage-bridge-vX.Y.Z.zip` with one top-level `usage-bridge/` folder, generates
 `catalog.json`, and publishes both assets with the matching `CHANGELOG.md` section as release notes. Packaging follows
 `.extensionignore`. The catalog entry carries the extension manifest fields, release download URL, documentation,
@@ -58,3 +67,14 @@ The extension vendors a pinned, unmodified token-usage library and records its s
 the compatibility contract, then release the extension archive and catalog. Developers install the extension in
 their Spec Kit project using the catalog or archive instructions above. See [the changelog](../CHANGELOG.md) for the
 released extension version and upstream token-usage pin.
+
+## v0.2.1 preparation
+
+Version 0.2.1 retains schema v2 and adds the checkpoint entrypoint/package module,
+binding module and command instructions. The catalog must advertise four commands
+and three workflow hooks. Build with `python tools/build_release.py --version 0.2.1
+--out dist --base-url https://github.com/CrazyBaran/spec-kit-usage-bridge` and inspect
+the archive before publishing. Vendor hashes stay unchanged. Update/reinstall each
+project to render the new command; development installs use `specify extension add
+D:/spec-kit-usage-bridge --dev`. Preserve existing configuration and report history.
+Preparing this branch does not publish a tag or release.
