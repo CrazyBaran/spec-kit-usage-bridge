@@ -1,12 +1,17 @@
 # Usage Bridge — token-usage for Spec Kit
 
-Usage Bridge turns local agent history into a per-feature, per-phase usage audit for
-[Spec Kit](https://github.com/github/spec-kit). **v0.2.1** reads Claude Code transcripts,
-local Codex rollouts and best-available Cursor history/activity. It combines sessions and
-contributors in `token-usage.md` beside each feature's spec, with measured tokens and
-API-equivalent cost estimates where the source and pricing permit.
+Usage Bridge connects [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) to
+[Spec Kit](https://github.com/github/spec-kit), turning local agent history into a
+per-feature, per-phase usage audit. It vendors an unmodified, pinned token-usage copy for
+transcript parsing, segmenting and pricing, and adds runtime adapters, Spec Kit phase
+recognition, feature attribution, explicit checkpoints and merged contributor reports.
 
-## Supported capabilities
+**v0.2.1** reads Claude Code transcripts, local Codex rollouts and best-available Cursor
+history/activity. It writes `token-usage.md` beside each feature's spec, with measured
+tokens and API-equivalent cost estimates where the source and pricing permit. The table
+below summarizes what Usage Bridge currently supports for each runtime.
+
+## What Usage Bridge v0.2.1 supports
 
 | Capability | Claude Code | Codex | Cursor |
 |---|---|---|---|
