@@ -251,7 +251,7 @@ def load_sources(context: ParseContext, config: Config, active: tuple[str, str] 
             sources = list(adapter.discover(context, config))
             sources.sort(key=lambda source: source.identity != active)
             for source in sources:
-                key = {"v": 5, "runtime": name, "stamps": [list(s) for s in source.stamps],
+                key = {"v": 6, "runtime": name, "stamps": [list(s) for s in source.stamps],
                        "checkouts": sorted(os.path.normcase(str(root.resolve())) for root in context.checkouts),
                        "keep_previews": context.keep_previews, "vendor": tu_compat.vendored_sha()}
                 path = directory / (hashlib.sha256(repr(source.identity).encode()).hexdigest() + ".json")
@@ -422,9 +422,10 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
             _set_snapshot_revisions(entries, feature_sources(work, cfg, feature_dir), author, machine)
             changed = False
             own_path = source_dir / f"{author}.{machine}.json"
-            historical = [s for src in feature_sources(work, cfg, feature_dir)
-                          if src.get("author", {}).get("name") == author
-                          and src.get("author", {}).get("machine") == machine for s in src.get("sessions", [])]
+            own_sources = [src for src in feature_sources(work, cfg, feature_dir)
+                           if src.get("author", {}).get("name") == author
+                           and src.get("author", {}).get("machine") == machine]
+            historical = [s for src in own_sources for s in src.get("sessions", [])]
             if not cfg.prompt_previews:
                 for session in historical:
                     removed = False
@@ -434,13 +435,19 @@ def run_capture(raw_stdin: str, cwd: Path, env: Mapping[str, str], now: datetime
                     if removed:
                         session["snapshot_revision"] = snapshot_revision(session) + 1
             refreshed = {(d.runtime, d.session_id) for d in digests}
-            entries.extend(s for s in historical if (s.get("runtime", "claude"), s["session_id"]) not in refreshed)
+            retained = [s for s in historical if (s.get("runtime", "claude"), s["session_id"]) not in refreshed]
+            entries.extend(retained)
+            retained_keys = {(s.get("runtime", "claude"), s["session_id"]) for s in retained}
+            retained_unpriced = {model for src in own_sources for model in src.get("unpriced_models", [])
+                                 if any((s.get("runtime", "claude"), s["session_id"]) in retained_keys
+                                        for s in src.get("sessions", []))}
             if entries:
                 state, reasons = completeness(feature_digests, deadline_hit)
                 unpriced = sorted({row.model for a in feature_runs
                                    for row in [*a.run.requests, *(r for sub in a.run.subagents for r in sub.requests)]
-                                   if "unpriced-model" in estimate(a.run.runtime, row.model, row.flat(), rates,
-                                                                  row.measurement)["reasons"]})
+                                   if any((value or 0) > 0 for value in row.flat().values())
+                                   and "unpriced-model" in estimate(a.run.runtime, row.model, row.flat(), rates,
+                                                                  row.measurement)["reasons"]} | retained_unpriced)
                 document = author_file(PurePosixPath(feature_dir).name, feature_dir, author, machine, generator,
                                        entries, state, reasons, unpriced)
                 changed |= write_if_changed(own_path, dump_json(document), log)

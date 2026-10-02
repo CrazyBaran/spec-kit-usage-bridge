@@ -74,12 +74,16 @@ class CursorAdapter:
             for model, bucket in buckets.items():
                 keys = ("input", "output", "cache_read", "cache_5m", "cache_1h")
                 explicit_zero = model in parsed.get("_measured_zero", {}).get(str(index), [])
-                measured = quality != "activity_only" and (any(bucket.get(k) for k in keys) or explicit_zero)
+                measured = explicit_zero or (quality != "activity_only" and any(bucket.get(k) for k in keys))
+                row_quality = "exact" if explicit_zero and quality == "activity_only" else quality
                 values = [bucket.get(k, 0) if measured else None for k in
                           ("input", "output", "cache_read", "cache_5m", "cache_1h")]
                 requests.append(Request(f"cursor:{source.session_id}:{index}:{model}", ts, model, *values,
-                                        index, kind="segment", measurement=quality if measured else "activity_only"))
+                                        index, kind="segment",
+                                        measurement=row_quality if measured else "activity_only"))
         reasons = ["source-warning"] if parsed.get("warnings") else []
+        if quality == "activity_only" and any(row.measurement != "activity_only" for row in requests):
+            quality = "exact"
         if any(row.measurement == "activity_only" for row in requests) and quality != "activity_only":
             quality = "partial"
             reasons.append("missing-segment-usage")

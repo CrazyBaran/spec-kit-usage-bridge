@@ -65,4 +65,5 @@ def exclude_inherited_prefix(child: SessionDigest, parent: SessionDigest) -> Ses
     if not prefix:
         return replace(child, requests=[], measurement="activity_only",
                        reasons=sorted(set(child.reasons + ["inherited-usage-ambiguous"])))
-    return replace(child, requests=child.requests[prefix:])
+    owned = child.requests[prefix:]
+    return replace(child, requests=owned, measurement=child.measurement if owned else "activity_only")

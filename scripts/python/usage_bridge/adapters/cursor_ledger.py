@@ -50,6 +50,10 @@ def append_event(payload: Mapping[str, Any], context: ParseContext) -> None:
         record["tokens"] = tokens
     directory = context.runtime_dir / "cursor-ledgers" / "cursor"
     directory.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(directory, 0o700)
+    except OSError:
+        pass  # Best effort on platforms/filesystems without POSIX permission support.
     path = directory / (hashlib.sha256(conversation.encode()).hexdigest() + ".jsonl")
     with path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, separators=(",", ":")) + "\n")
