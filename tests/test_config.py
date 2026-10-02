@@ -55,6 +55,8 @@ def test_nonfinite_deadlines_fall_back_with_warning(tmp_path):
         cfg = load_config(tmp_path, {'SPECKIT_USAGE_BRIDGE_CAPTURE_DEADLINE_SECONDS': value})
         assert cfg.deadline_seconds == 15.0
         assert any('deadline_seconds' in warning for warning in cfg.warnings)
+
+
 def test_runtime_defaults_and_environment_precedence(tmp_path):
     from usage_bridge.config import load_config
 

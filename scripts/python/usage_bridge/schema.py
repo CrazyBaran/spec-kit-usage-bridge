@@ -30,6 +30,8 @@ def normalize_source(data: Mapping[str, Any], *, require_metadata: bool = True) 
                 or any(not isinstance(run, dict) for run in session.get("runs", []))):
             raise ValueError("invalid session entry")
         session.setdefault("runtime", "claude")
+        if not isinstance(session["runtime"], str) or not session["runtime"]:
+            raise ValueError("invalid session runtime")
         session.setdefault("measurement", "exact")
         for row in [session, *session.get("runs", [])]:
             quality = row.get("measurement", session["measurement"])

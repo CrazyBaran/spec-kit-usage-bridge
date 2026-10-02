@@ -40,8 +40,9 @@ class CodexAdapter:
         return {**meta, "_workspace_roots": sorted(workspaces), "_indexed_complete": complete, "_index_version": 2}
 
     def discover(self, context: ParseContext, config: Config) -> Iterator[SourceDescriptor]:
-        home = Path(context.env.get("CODEX_HOME") or str(Path.home() / ".codex"))
-        roots = [home / "sessions", home / "archived_sessions", *map(Path, config.codex_extra_dirs)]
+        home = Path(context.env.get("CODEX_HOME") or str(Path.home() / ".codex")).expanduser()
+        roots = [home / "sessions", home / "archived_sessions",
+                 *(Path(folder).expanduser() for folder in config.codex_extra_dirs)]
         index_path = context.runtime_dir / "codex-index.json"
         try:
             index = json.loads(index_path.read_text(encoding="utf-8"))

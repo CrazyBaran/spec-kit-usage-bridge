@@ -20,7 +20,7 @@ class CursorAdapter:
         for project in context.checkouts:
             if context.expired():
                 break
-            data_root = Path(config.cursor_data_dir) if config.cursor_data_dir else None
+            data_root = Path(config.cursor_data_dir).expanduser() if config.cursor_data_dir else None
             candidates.extend(tu_compat.cursor_sessions(project, context.runtime_dir / "cursor-ledgers", data_root,
                                                        timeout=context.deadline - context.clock()))
         for folder in config.cursor_extra_dirs:

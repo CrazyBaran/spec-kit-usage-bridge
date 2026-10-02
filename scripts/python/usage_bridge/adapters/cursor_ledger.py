@@ -16,6 +16,23 @@ from .codex import invocation
 HOOKS = {"beforeSubmitPrompt", "stop", "afterAgentResponse", "subagentStart", "subagentStop"}
 
 
+def _checkout_owner(payload: Mapping[str, Any], context: ParseContext) -> Path | None:
+    def match(root: Any) -> Path | None:
+        if not isinstance(root, str) or not root:
+            return None
+        owners = [checkout for checkout in context.checkouts if is_inside(root, [checkout])]
+        return max(owners, key=lambda checkout: len(str(checkout)), default=None)
+
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd:
+        return match(cwd)
+    roots = payload.get("workspace_roots")
+    if not isinstance(roots, list) or not roots:
+        return None
+    owners = {match(root) for root in roots}
+    return owners.pop() if len(owners) == 1 and None not in owners else None
+
+
 def append_event(payload: Mapping[str, Any], context: ParseContext) -> None:
     hook, conversation = payload.get("hook_event_name"), payload.get("conversation_id")
     if hook not in HOOKS or not isinstance(conversation, str) or not conversation:
@@ -23,16 +40,12 @@ def append_event(payload: Mapping[str, Any], context: ParseContext) -> None:
     record = {"hook": hook, "conversation_id": conversation,
               "generation_id": str(payload.get("generation_id") or "unknown"),
               "ts": payload.get("timestamp") or datetime.now(timezone.utc).isoformat()}
-    evidence = [payload.get("cwd"), *(payload.get("workspace_roots") or [])]
-    owners = [checkout for checkout in context.checkouts
-              if any(isinstance(root, str) and is_inside(root, [checkout]) for root in evidence)]
-    owner = max(owners, key=lambda checkout: len(str(checkout)), default=None)
+    owner = _checkout_owner(payload, context)
     branch = current_branch(owner) if owner else None
     if branch:
         record["branch"] = branch
-    roots = payload.get("workspace_roots")
-    if isinstance(roots, list):
-        record["workspace_roots"] = [root for root in roots if isinstance(root, str)]
+    # The vendor assigns a ledger to its first root, so store only proven ownership.
+    record["workspace_roots"] = [str(owner.resolve())] if owner else []
     text = str(payload.get("prompt") or "")
     name = invocation(text)
     if hook == "beforeSubmitPrompt":
