@@ -1,85 +1,124 @@
 # Usage Bridge — token-usage for Spec Kit
 
 Usage Bridge connects [token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) to
-[Spec Kit](https://github.com/github/spec-kit). Version 0.2.1 reads Claude Code transcripts, local Codex rollouts and
-best-available Cursor history/activity, and writes a
-per-feature, per-phase token and estimated cost audit beside the feature's spec. Reports combine sessions and authors,
-include subagent usage, and remove duplicate API requests from resumed sessions.
+[Spec Kit](https://github.com/github/spec-kit), turning local agent history into a
+per-feature, per-phase usage audit. It vendors an unmodified, pinned token-usage copy for
+transcript parsing, segmenting and pricing, and adds runtime adapters, Spec Kit phase
+recognition, feature attribution, explicit checkpoints and merged contributor reports.
 
-## What it answers
+**v0.2.1** reads Claude Code transcripts, local Codex rollouts and best-available Cursor
+history/activity. It writes `token-usage.md` beside each feature's spec, with measured
+tokens and API-equivalent cost estimates where the source and pricing permit. The table
+below summarizes what Usage Bridge currently supports for each runtime.
 
-- How many input, output, cache-read and cache-write tokens did each Spec Kit phase use?
-- How is usage split across runs, sessions and authors?
-- Did splitting phases across sessions appear to save cost after accounting for the context loaded again?
+## What Usage Bridge v0.2.1 supports
 
-The generated `token-usage.md` is the merged report. Per-author source data lives in
-`token-usage/<author>.<machine>.json`. There is no merged JSON file; `report --json` prints the merged view. Reports
-contain token counts, costs, model names, timestamps, session ids and author names. They do not contain prompt text or
-local paths unless prompt previews are explicitly enabled.
+| Capability | Claude Code | Codex | Cursor |
+|---|---|---|---|
+| Local sources | Claude project transcripts | `CODEX_HOME/sessions`, `archived_sessions`, configured extra directories | Bridge hook ledgers, owned exports, then available local SQLite history |
+| Token measurement | Recorded request usage, including cache buckets | Conservatively reconciled token counters | Measured usage where present; otherwise activity only |
+| Phase reports and explicit feature checkpoints | Supported | Supported; manual continuation verified | Supported |
+| Request counts and session-splitting estimates | Supported when required evidence is available | Unavailable | Unavailable |
+| Native capture | Claude `Stop` hook path when runtime events are configured and delivered | Automatic delivery manual/unverified; use manual refresh | Automatic delivery manual/unverified; use manual refresh |
 
-## Install
+Claude subagent requests join the phase active when the subagent started. Codex child
+history is handled conservatively to avoid counting proven inherited usage twice.
+Codex counter observations and Cursor segments are not API request counts.
 
-Version 0.2.1 adds an explicit checkpoint command; upgrade/reinstall the extension
-in each project to receive the new command and after-specify workflow hook. A
-development checkout uses `specify extension add D:/spec-kit-usage-bridge --dev`;
-published installations use the catalog update procedure below. This branch's
-version bump does not itself publish a release.
+Windows tests verify Spec Kit installation, dispatcher compatibility and removal for all
+three integrations. Synthetic events do **not** establish authenticated native delivery.
+See [native verification](docs/native-smoke.md) for the tested scope.
 
-Requirements: Spec Kit 1.0.12 or later, Python 3.9 or later, and a Claude, Codex or Cursor integration. Git is recommended for
-branch and worktree attribution. Capture is automatic through the Claude `Stop` hook after the extension and Claude
-runtime events are configured.
+## Install and configure
 
-Codex and Cursor automatic capture is **manual/unverified** until authenticated native
-event delivery is demonstrated. Manual capture and report commands work across runtimes.
-The pinned Spec Kit dispatcher install/dispatch/remove tests pass for all three integrations
-on Windows. See [native verification](docs/native-smoke.md) for the tested scope.
+Requirements: **Spec Kit 1.0.12+**, **Python 3.9+**, and a supported Spec Kit integration.
+Git is recommended for branch attribution and worktree discovery.
 
-Add the install-allowed catalog and install the extension in a Spec Kit project:
+### Install from source today
+
+As of **2026-10-02**, the public repository has no published GitHub releases; the v0.2.1
+release and latest catalog URLs return 404. Public release publishing is planned.
+Use a source checkout until release assets are available.
+
+Clone [this repository](https://github.com/CrazyBaran/spec-kit-usage-bridge). From the root
+of an existing Spec Kit project, replace `PATH_TO_USAGE_BRIDGE_CHECKOUT` with the absolute
+path to that checkout:
+
+```bash
+specify extension add "PATH_TO_USAGE_BRIDGE_CHECKOUT" --dev
+```
+
+To refresh an existing source installation, update that checkout, then run this from
+each consuming project's root using the same checkout-path placeholder:
+
+```bash
+specify extension add "PATH_TO_USAGE_BRIDGE_CHECKOUT" --dev --force
+```
+
+Spec Kit requires `--force` to replace an already installed extension. The reinstall
+renders the v0.2.1 checkpoint command and workflow hook.
+
+### One or several integrations
+
+Install the integrations you use in the consuming project before adding the extension:
+
+```bash
+specify integration install claude
+specify integration install codex
+specify integration install cursor-agent
+```
+
+All three are declared safe to install together in Spec Kit v1.0.12. `cursor-agent` is
+its integration key; `cursor` is the Usage Bridge runtime name. Cursor's editor CLI is
+distinct from the authenticated `cursor-agent` CLI.
+
+For an installed integration, `install` does not refresh its files or options. Use
+`upgrade` when runtime events need to be enabled:
+
+```bash
+specify integration upgrade claude --integration-options="--events true"
+specify integration upgrade codex --integration-options="--events true"
+specify integration upgrade cursor-agent --integration-options="--events true"
+```
+
+Syntax is checked against the
+[Spec Kit v1.0.12 implementation](https://github.com/github/spec-kit/tree/v1.0.12/src/specify_cli/integrations).
+Configuring events does not establish automatic delivery. Check the extension:
+
+```powershell
+python .specify/extensions/usage-bridge/scripts/python/check.py --verbose
+```
+
+Use `python3` instead of `python` where required by your shell. Required check failures
+exit 1; optional discovery warnings do not. A successful check or recent capture does
+not prove automatic native delivery.
+
+### Published installation, once assets exist
+
+The planned catalog route below is **not currently usable** because the public catalog
+asset has not been published:
 
 ```bash
 specify extension catalog add --name usage-bridge --install-allowed https://github.com/CrazyBaran/spec-kit-usage-bridge/releases/latest/download/catalog.json
 specify extension add usage-bridge
+specify extension update usage-bridge
 ```
 
-To install directly from a release archive instead, use `specify extension add usage-bridge --from <release zip URL>`.
-The catalog route is needed for `specify extension update usage-bridge`.
+Direct archive installation uses `specify extension add usage-bridge --from RELEASE_ZIP_URL`.
+Replace `RELEASE_ZIP_URL` with an actual published archive URL. Catalog updates require
+an installed catalog. See the [release guide](docs/release.md) for packaging details.
+v0.2.x writes schema v2; upgrade all contributors before sharing new reports.
 
-After installation, check the project integration. In Bash:
+### Settings
 
-```bash
-python3 .specify/extensions/usage-bridge/scripts/python/check.py || exit 1
-```
-
-In PowerShell:
-
-```powershell
-python .specify/extensions/usage-bridge/scripts/python/check.py
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-```
-
-The check reports missing Python or a supported enabled integration as failures. Optional history
-discovery and git issues are warnings. Codex/Cursor checks explicitly report unverified native delivery.
-
-## Commands
-
-- `/speckit-usage-bridge-report [feature-id | --all] [--json]` refreshes capture and prints a feature report or a
-  cross-feature rollup. With no feature argument it selects the active or most recently active feature.
-- `/speckit-usage-bridge-check [--verbose] [--json]` checks the integration and environment. A failure exits 1.
-- `/speckit-usage-bridge-capture` forces a manual refresh; automatic capture requires native event delivery. Hook capture is silent
-  and exits 0 so reporting problems do not interrupt the agent.
-
-## Configuration
-
-The installed template is `.specify/extensions/usage-bridge/usage-bridge-config.yml`. It is copied once and is not
-overwritten on extension updates. A machine-specific `usage-bridge-config.local.yml` can override settings without
-being committed. Environment variables prefixed `SPECKIT_USAGE_BRIDGE_` can also override configuration.
+The shared configuration is `.specify/extensions/usage-bridge/usage-bridge-config.yml`.
+Use `usage-bridge-config.local.yml` in the same directory for machine-specific paths or
+`author.alias`, and keep the local file out of version control. Updates preserve existing
+configuration. Settings apply in order: defaults, shared file, local file, then supported
+`SPECKIT_USAGE_BRIDGE_` environment overrides.
 
 ```yaml
 enabled: true
-output:
-  dir: "{feature_dir}"
-transcripts:
-  extra_dirs: []
 runtimes:
   enabled: [claude, codex, cursor]
   codex:
@@ -87,6 +126,10 @@ runtimes:
   cursor:
     extra_dirs: []
     data_dir: ""
+transcripts:
+  extra_dirs: []
+output:
+  dir: "{feature_dir}"
 pricing:
   overrides: {}
 privacy:
@@ -97,104 +140,217 @@ log:
   level: info
 ```
 
-Custom `output.dir` paths must contain a plain `{feature_dir}` or `{feature_id}` placeholder and must not use
-parent-directory (`..`) traversal. Invalid templates fall back to each feature’s own directory and log a warning,
-preventing multiple features from overwriting the same report.
+`transcripts.extra_dirs` adds Claude sources; runtime `extra_dirs` adds Codex or Cursor
+sources. `runtimes.cursor.data_dir` selects a nonstandard Cursor data directory.
+Custom output templates must contain `{feature_dir}` or `{feature_id}` and cannot use
+parent traversal (`..`); invalid templates fall back to the feature directory.
+See the [configuration template](config-template.yml) for defaults.
 
-Pricing overrides use USD per million tokens, for example
-`{input: 5.0, output: 25.0, cache_read: 0.5}` for a model prefix. The deadline is capped at 15 seconds within the
-30-second Spec Kit event timeout. The runtime directory is `<git common dir>/usage-bridge/` (or the extension's
-`.runtime/` fallback outside git); it holds capture state and logs, not committed reports.
+## Capture, measurement and attribution
 
-## How numbers are computed
+These are separate steps:
 
-The pinned token-usage library supplies transcript parsing, segmentation and base pricing. Usage Bridge adds Spec Kit
-phase recognition, request-level deduplication across files, feature attribution and per-feature reports. Each API
-request is counted once using the maximum observed token values across streamed entries. Subagent requests are included
-in the phase active when the agent started. Phase runs group the requests between recognized command or skill
-boundaries; ordinary prompts remain with the current phase.
+- **Discovery** finds local history owned by the checkout. A discovered session need not
+  contain token counts, recognized phases or correct feature evidence.
+- **Measurement** reads recorded usage. Missing or ambiguous counts remain unavailable;
+  a checkpoint cannot recover them.
+- **Phase recognition** groups work by observed Spec Kit or extension invocations.
+  Ordinary prompts and helper skills remain in their surrounding phase.
+- **Feature attribution** uses an explicit binding first, matching capture-timeline
+  evidence second, then a resolvable recorded branch. Unresolved work stays unattributed;
+  constitution work is project-level.
+- **Workflow hooks** request a check before specify, a checkpoint after specify and an
+  optional report after implement. They are separate from runtime events.
+- **Automatic native capture** requires the agent to deliver the configured event.
+  Installed hooks and synthetic dispatch tests do not prove that delivery.
 
-Feature attribution uses a capture timeline entry matching the run’s closing request first, then the git branch,
-then an unattributed bucket. A missed Stop cannot assign earlier work to a later active feature. `git user.name`
-is converted to an author slug by default; `author.alias` can override it. A short machine id keeps two computers from
-writing the same author file. The merged Markdown is rebuilt deterministically from the per-author files. After an alias change, overlapping
-sessions on the same machine count once using the newest snapshot; historical source files remain intact.
+A session started before feature creation can retain an old branch in its history.
+Manual capture discovers that history but does not automatically correct its destination.
+The after-specify workflow requests a binding for that invocation; it does not establish
+an entire-session feature or guarantee capture of later phases.
 
-Costs are estimates at the vendored API list prices. Input, output, cache-read and cache-write usage use the upstream
-pricing table and cache multipliers; unknown models are reported as unpriced. The session-splitting verdict compares
-observed phase costs with estimated context reload costs and prints its assumptions in the report. It is an estimate,
-not a billing statement.
+## Checkpoint ongoing work
 
-## Related extensions
+A checkpoint binds **one observed phase invocation** to an existing feature directory
+inside the checkout. Use it for missing or stale attribution. Later phases need their
+own checkpoints when continuing with explicit attribution, including `clarify`, `plan`,
+`tasks`, `implement` and recognized extension phases such as `superspec.brainstorm`.
+Switching features requires another checkpoint for the new invocation.
 
-| Extension | Focus | How it relates to Usage Bridge |
-|---|---|---|
-| [token-analyzer](https://github.com/coderandhiker/spec-kit-token-analyzer) | Deliberate benchmark runs, preset/model comparison and quality scoring | Use it for benchmarks; Usage Bridge records everyday work. |
-| [Cost Tracker](https://github.com/Quratulain-bilal/spec-kit-cost) | Budgets, model repricing and finance exports with manually entered counts | Usage Bridge measures transcript counts that may inform that workflow. |
-| [token-budget](https://github.com/tinesoft/spec-kit-token-budget) | Reducing context and artifact size | It reduces token use; Usage Bridge shows observed usage. |
+### Get the session ID inside Codex
 
-## Limitations
+Ask Codex in the session you want to checkpoint to print its shell's `CODEX_THREAD_ID`.
+In PowerShell:
 
-See [limitations and assumptions](docs/limitations.md), including transcript format uncertainty, attribution gaps,
-pricing assumptions and author data in committed reports.
+```powershell
+$env:CODEX_THREAD_ID
+```
 
-## Credits and affiliation
+In Bash:
 
-**token-usage does the transcript parsing, segmenting and pricing. Usage Bridge adds Spec Kit capture, attribution and
-per-feature reports.** The extension vendors an unmodified token-usage copy at commit
-`f4078277e79c007993e0cb595bb95f924a2a8777`; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+```bash
+printf '%s\n' "$CODEX_THREAD_ID"
+```
 
-Usage Bridge is a community project and is not affiliated with GitHub, Spec Kit or Wicked Sick Ltd.
+Copy the value as the session ID. Codex can omit `--runtime` and `--session-id` when the
+executing shell supplies `CODEX_THREAD_ID`. If it is absent, obtain a verified native ID;
+never guess from the newest transcript or `.specify/feature.json`. Claude and Cursor
+require explicit runtime and native session IDs.
+
+### Preview, apply and report
+
+Run these from the consuming project's root **after invoking the relevant phase**.
+`SESSION_ID` and `specs/FEATURE_DIRECTORY` are placeholders: replace them with your
+verified session ID and an existing feature directory.
+
+```powershell
+# Preview the latest observed clarify invocation without saving a binding.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION_ID --feature "specs/FEATURE_DIRECTORY" --phase clarify --latest
+
+# Check the preview's session, invocation timestamp and destination, then apply.
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION_ID --feature "specs/FEATURE_DIRECTORY" --phase clarify --latest --apply
+
+# Refresh and print the feature report.
+python .specify/extensions/usage-bridge/scripts/python/report.py "specs/FEATURE_DIRECTORY"
+```
+
+For a Superspec command use the observed canonical phase, e.g. `--phase superspec.brainstorm`.
+A general brainstorming helper skill does not create that Superspec command phase.
+Preview the new feature's invocation before applying a feature switch.
+
+Repeated phases need explicit `--latest` or the exact observed invocation timestamp.
+**Historical repair is a separate selection**, not a side effect of checkpointing ongoing
+work. Replace `INVOCATION_TIMESTAMP` below with the earlier specify invocation's timestamp:
+
+```powershell
+python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION_ID --feature "specs/FEATURE_DIRECTORY" --phase specify --invocation-ts INVOCATION_TIMESTAMP
+```
+
+Inspect the preview, then repeat with `--apply` to save and refresh. Bindings preserve
+measurement quality, never manufacture tokens, and do not rewrite raw transcripts or
+repair another contributor's committed sources. They are private state and do not travel
+between machines. If saving succeeds but refresh fails, retry capture; the binding survives.
+
+## Commands and manual refresh
+
+The manifest provides `speckit.usage-bridge.check`, `speckit.usage-bridge.capture`,
+`speckit.usage-bridge.checkpoint` and `speckit.usage-bridge.report`. Spec Kit renders their
+invocation syntax for each integration. The Python entrypoints also work directly:
+
+```powershell
+python .specify/extensions/usage-bridge/scripts/python/check.py --verbose
+python .specify/extensions/usage-bridge/scripts/python/capture.py
+python .specify/extensions/usage-bridge/scripts/python/report.py --all
+python .specify/extensions/usage-bridge/scripts/python/report.py --all --json
+```
+
+`report.py` refreshes before printing. Pass a feature directory or unique name for one
+report; no argument selects the active or most recently active feature. `--all` includes
+project work and unattributed coverage in the cross-feature rollup. Checkpoint previews
+change neither bindings nor feature reports; `--apply` saves and refreshes.
+Capture is silent in hook mode and always exits 0; use diagnostics and logs to detect
+capture failures rather than relying on its exit status.
+
+## Read the numbers
+
+Unknown token buckets are unavailable (`null` in JSON), **not zero**. Explicit measured
+zeros remain zero. Reports distinguish exact, partial and activity-only measurement from
+scan completeness. Measured-token subtotals exclude unavailable usage; a complete scan
+does not make missing counters measurable.
+
+Claude requests are deduplicated across files and streamed entries. Codex reconciliation
+subtracts cache reads from input and keeps reasoning tokens within output; resets and
+uncertain inherited history reduce coverage. Cursor prefers bridge-owned ledgers over
+owned exports and local SQLite state.
+
+Unpriced models retain their measured tokens while complete cost remains unavailable.
+Known-cost subtotals include priced usage only and may be unavailable when nothing is
+priced. Pricing overrides map model prefixes to confirmed USD-per-million-token rates,
+for example `{input: 5.0, output: 25.0, cache_read: 0.5}`. These are illustrative rates,
+not a recommendation for any particular model; never infer a price from its name.
+
+Costs use bundled tables and overrides. They are **API-equivalent estimates**, not
+subscription charges or billing statements. Compaction summarization calls absent from
+transcripts are not costed; not every billing option is modeled. Claude session-splitting
+estimates print their assumptions. Codex/Cursor lack that verdict and request/repriming counts.
+
+## Files and privacy
+
+Default output:
+
+```text
+specs/FEATURE_DIRECTORY/
+  token-usage.md
+  token-usage/
+    AUTHOR.MACHINE.json
+```
+
+These stand for your real feature directory, author slug and short machine ID. Markdown
+merges contributor sources deterministically; there is no merged JSON file (`report.py
+--json` prints that view). `git user.name` supplies the default author identity, overridden
+by a local `author.alias`. Source files can be shared through Git.
+
+Private bindings, state, caches, Cursor ledgers and `logs/usage-bridge.log` live under
+`<git common dir>/usage-bridge/`, shared by worktrees with bindings scoped to their checkout.
+Outside Git the fallback is `.specify/extensions/usage-bridge/.runtime/`.
+
+Reports identify authors and sessions and include models, timestamps, usage and costs.
+Prompt previews default off. Private state can contain paths and command/phase evidence.
+Enabling previews adds text to bridge-owned data; disabling them removes text from ledgers
+and caches on refresh, leaving original agent files intact. Review files before sharing.
+
+## Troubleshooting and limitations
+
+- **No sessions or usage:** run an agent turn, check `--verbose`, and confirm local paths
+  and enabled runtimes. Cloud-only Codex history is unavailable until stored locally.
+- **Missing phase:** invoke it first. Checkpoints require observed invocation evidence;
+  a helper skill is not a substitute for a Superspec command.
+- **Wrong feature or unattributed usage:** preview and apply that invocation's checkpoint.
+  Repair earlier phases separately.
+- **Ambiguous invocation:** use its timestamp for repeated phases. Conflicting Codex
+  local/archived histories must be resolved first; timestamps cannot bypass that conflict.
+- **No automatic refresh:** run capture or report manually. Codex/Cursor delivery is
+  unverified; inspect configured events and private logs.
+- **Partial or interrupted refresh:** retry; large first scans may need a warm cache.
+  Source failures retain prior snapshots. Features in another worktree need capture in
+  a checkout where the destination exists.
+- **Unavailable price:** tokens may still be measured. Add confirmed overrides or keep
+  the estimate unavailable.
+
+Formats and Cursor sources vary by version and OS. macOS/Linux authenticated native
+delivery remains unverified. See [limitations and assumptions](docs/limitations.md) for
+accounting, platform and privacy boundaries.
+
+## Verified v0.2.1 behavior
+
+A user-operated Windows Codex continuation test verified manual checkpointing of
+`superspec.brainstorm`, saved bindings, report generation and identical totals across two
+refreshes. Measured tokens stayed visible for the unpriced `gpt-6.1-sol` model. The outputs
+do not isolate checkpointing as the cause of the initial attribution change.
+
+It did **not** validate automatic native capture, automatic after-specify delivery,
+feature switching, historical specify repair or real Claude/Cursor delivery. Detailed
+evidence and test qualifications are in [v0.2.1 verification](docs/v0.2.1-verification.md),
+with delivery procedures in [native smoke documentation](docs/native-smoke.md).
+
+## Related projects and credits
+
+[token-analyzer](https://github.com/coderandhiker/spec-kit-token-analyzer) focuses on
+benchmarks and model comparison; [Cost Tracker](https://github.com/Quratulain-bilal/spec-kit-cost)
+on budgets and finance exports; [token-budget](https://github.com/tinesoft/spec-kit-token-budget)
+on reducing context size. Usage Bridge records everyday work.
+
+[token-usage](https://github.com/Wicked-Sick-Ltd/token-usage) supplies transcript parsing, segmenting and pricing.
+Usage Bridge adds adapters, Spec Kit phase recognition, capture, deduplication, attribution
+and reports. The vendored token-usage copy is unmodified and pinned to
+`f4078277e79c007993e0cb595bb95f924a2a8777`;
+see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Usage Bridge is a community project and is not affiliated with GitHub, Spec Kit or Wicked
+Sick Ltd.
 
 ## License
 
-Usage Bridge is licensed under the MIT License; see [LICENSE](LICENSE).
-
-## Project status
-
-| Stage | Status |
-|---|---|
-| Design brief | Complete |
-| Design spec | Complete |
-| Implementation plan | Complete |
-| v0.1.0 implementation and tests | Complete |
-| First release | Prepared; not published |
-
-## Explicit feature checkpoints (v0.2.1)
-
-If a session started on another branch, its transcript may retain that old branch
-when specify creates a feature. A checkpoint binds one observed phase invocation
-to the feature you explicitly select, for Claude, Codex and Cursor. It preserves
-measurement quality and never manufactures missing counts.
-
-The after-specify workflow checkpoint passes its resolved feature and phase. Later
-core and extension phases need their own checkpoint. Invoke speckit.usage-bridge.checkpoint
-or run these commands from the project root:
-
-```powershell
-# Preview the latest clarify invocation in the verified session.
-python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase clarify --latest
-# Apply the selected invocation and refresh reports.
-python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase clarify --latest --apply
-# Switching features requires another explicit checkpoint.
-python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-C --phase superspec.brainstorm --latest --apply
-# Preview historical specify repair independently of ongoing work.
-python .specify/extensions/usage-bridge/scripts/python/checkpoint.py --runtime codex --session-id SESSION --feature specs/FEATURE-B --phase specify --invocation-ts 2026-10-01T08:00:02.000Z
-```
-
-Replace SESSION with the verified native session ID and FEATURE-B/C with existing
-directories inside this checkout. Codex may omit runtime/session flags when its
-shell supplies CODEX_THREAD_ID. Claude and Cursor require explicit IDs. Both
---feature and --phase are required. Repeated matching phases need an invocation
-timestamp or explicit --latest. A helper brainstorming skill keeps its surrounding
-phase; it does not create a separate Superspec command phase.
-
-Manual use previews without changing bindings or feature reports; --apply persists
-the selection. A binding affects one invocation only, never the entire session.
-Earlier history needs its own explicitly selected repair. Raw transcripts and
-other contributors' source files remain unchanged; locally repairing an invocation
-does not repair copies committed by another contributor. Bindings live in private
-Git runtime state and are not shared across machines. If saving succeeds but report
-refresh fails, retry capture: the saved binding survives. Workflow mode warns
-without blocking specification work. Later-phase automatic capture does not follow
-from the initial checkpoint, and Codex/Cursor native delivery remains unverified.
+Usage Bridge is licensed under the [MIT License](LICENSE). Vendored token-usage retains
+its own [license](scripts/python/vendor/token_usage/LICENSE); see
+[third-party notices](THIRD_PARTY_NOTICES.md) for attribution and licensing details.
