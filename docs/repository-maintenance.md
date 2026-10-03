@@ -52,8 +52,9 @@ protections to recover from an error.
 ## Reading the report
 
 The report is printed as JSON and saved to
-`build/repository-config/main-<UTC timestamp>.json` (git-ignored; override with
-`--report-dir`). It holds no credentials.
+`build/repository-config/main-<UTC timestamp>.json` under the repository root
+(git-ignored; override with `--report-dir`, a relative path resolves against the
+repository root). It holds no credentials.
 
 - `mode`: `dry-run` or `apply`.
 - `actions_app_id`: the discovered GitHub Actions app id, or `null`.
@@ -69,9 +70,13 @@ The report is printed as JSON and saved to
 ## Scope and limits
 
 Only the `usage-bridge-main` ruleset and the two settings above are touched. Other
-rulesets and unrelated settings are never modified. If another ruleset or rule would
-block solo merge-commit merges (required approvals, linear history, no merge method),
-the tool reports it as a blocker rather than editing it.
+rulesets, classic branch protection and unrelated settings are never modified. The tool
+also reads classic branch protection on `main` (when `main` is protected). If another
+ruleset, rule or classic protection would block solo merge-commit merges (required
+approvals, code owner review, last-push approval, required reviewers, linear history,
+`update`, merge queue, required deployments, or no merge-commit method), the tool
+reports it as a blocker rather than editing it. On the owned ruleset those settings
+are reconciled to the policy instead.
 
 Repository admins can still change settings or edit the ruleset itself. Enforcement
 here targets everyone without admin authority over rules; it is not a defense against
@@ -79,8 +84,21 @@ an admin who chooses to alter it.
 
 ## When CI job names change
 
-The required contexts are `REQUIRED_CONTEXTS` in `tools/repository_policy.py`. Update
-that tuple (and the tests) to match the new job names, merge the change, let CI run on
-`main` so check runs with the new names exist, then run the dry run and `--apply`
-again. The existing owned ruleset is merged forward, adding the new contexts; remove
-stale ones in the repository settings UI as an admin.
+Adding a new CI job is safe: it is not required until you add it to the policy.
+Renaming or removing a *required* job is not safe to do in one step. Once protection
+is active, a pull request that renames a required job never reports the old context,
+so it can never merge (there is no bypass), and the tool cannot help: the ruleset
+union never removes contexts, and planning refuses until check runs with the new
+names exist on `main`.
+
+Do it in this order:
+
+1. **Before merging the rename PR**, an admin edits the `usage-bridge-main` ruleset
+   (repository settings UI, or `gh api` `PUT repos/<owner>/<repo>/rulesets/<id>`) to
+   remove the old required contexts and add the new ones, each bound to the GitHub
+   Actions app (integration id 15368).
+2. Merge the rename PR; CI now runs with the new names on `main`.
+3. Update `REQUIRED_CONTEXTS` in `tools/repository_policy.py` (and the tests) through a
+   normal pull request.
+4. Re-run the dry run (`python tools/configure_repository.py main --repo
+   CrazyBaran/spec-kit-usage-bridge`) and confirm `verified: true`.

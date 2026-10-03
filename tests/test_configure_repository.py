@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -31,6 +33,8 @@ class FakeAPI:
             'permissions': {'admin': True},
         }
         self.rulesets = {}
+        self.protected = False
+        self.classic = {}
         self.check_runs = [{'name': n, 'app': dict(APP)} for n in REQUIRED_CONTEXTS]
         self.check_runs += [{'name': 'other', 'app': dict(APP)}]
 
@@ -62,6 +66,10 @@ class FakeAPI:
             raise GitHubAPIError(f'{method} {path} failed (exit 1, HTTP 403): boom', 403)
         if method == 'GET' and path == BASE:
             return copy.deepcopy(self.repository)
+        if method == 'GET' and path == f'{BASE}/branches/main':
+            return {'name': 'main', 'protected': self.protected}
+        if method == 'GET' and path == f'{BASE}/branches/main/protection':
+            return copy.deepcopy(self.classic)
         if method == 'GET' and path.startswith(f'{BASE}/rulesets/'):
             return copy.deepcopy(self.rulesets[int(path.rsplit('/', 1)[1])])
         if method == 'PATCH' and path == BASE:
@@ -220,3 +228,49 @@ def test_cli_apply_exit_codes(fake_api, tmp_path):
     bad = configure_repository.main(
         ['main', '--repo', 'github/spec-kit', '--report-dir', str(tmp_path)], api=fake_api)
     assert bad == 1
+
+
+def test_unprotected_main_never_requests_classic_protection(fake_api):
+    report = configure_main(fake_api, REPO, apply=True)
+    assert report['verified'] is True
+    paths = [c.path for c in fake_api.calls]
+    assert f'{BASE}/branches/main' in paths
+    assert f'{BASE}/branches/main/protection' not in paths
+
+
+@pytest.mark.parametrize('classic', [
+    {'required_pull_request_reviews': {'required_approving_review_count': 1}},
+    {'required_pull_request_reviews': {'require_code_owner_reviews': True}},
+    {'required_pull_request_reviews': {'require_last_push_approval': True}},
+    {'required_linear_history': {'enabled': True}},
+])
+def test_blocking_classic_protection_stops_without_writes(fake_api, classic):
+    fake_api.protected = True
+    fake_api.classic = classic
+    report = configure_main(fake_api, REPO, apply=True)
+    assert any('classic' in e for e in report['errors'])
+    assert writes(fake_api) == []
+    assert report['verified'] is False
+
+
+def test_benign_classic_protection_is_read_and_allowed(fake_api):
+    fake_api.protected = True
+    fake_api.classic = {'allow_force_pushes': {'enabled': False}}
+    report = configure_main(fake_api, REPO, apply=True)
+    assert report['errors'] == []
+    assert report['verified'] is True
+    assert any(c.path == f'{BASE}/branches/main/protection' for c in fake_api.calls)
+
+
+def test_relative_report_dir_resolves_against_repository_root(fake_api, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    root = Path(configure_repository.__file__).resolve().parents[1]
+    target = root / 'build' / 'test-report-dir-resolution'
+    try:
+        configure_repository.main(
+            ['main', '--repo', REPO, '--report-dir', 'build/test-report-dir-resolution'],
+            api=fake_api)
+        assert list(target.glob('main-*.json'))
+        assert not (tmp_path / 'build').exists()
+    finally:
+        shutil.rmtree(target, ignore_errors=True)

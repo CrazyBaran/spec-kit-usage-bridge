@@ -193,7 +193,7 @@ def test_stricter_existing_policy_is_preserved():
     owned = owned_ruleset()
     rule(owned, 'required_status_checks')['parameters']['required_status_checks'].append(
         {'context': 'extra', 'integration_id': APP_ID})
-    rule(owned, 'pull_request')['parameters']['require_code_owner_review'] = True
+    rule(owned, 'pull_request')['parameters']['dismiss_stale_reviews_on_push'] = True
     owned['rules'].append({'type': 'required_signatures'})
     inherited = other_ruleset([{'type': 'required_signatures'}, {'type': 'creation'}])
     state = existing_state(
@@ -385,7 +385,7 @@ def test_verify_accepts_exact_match_with_server_fields():
 
 def test_verify_accepts_stricter_extras_and_reordered_checks():
     owned = owned_ruleset()
-    rule(owned, 'pull_request')['parameters']['require_code_owner_review'] = True
+    rule(owned, 'pull_request')['parameters']['dismiss_stale_reviews_on_push'] = True
     checks = rule(owned, 'required_status_checks')['parameters']
     checks['required_status_checks'].reverse()
     checks['required_status_checks'].append({'context': 'extra', 'integration_id': 1})
@@ -435,3 +435,98 @@ def test_verify_flags_missing_ruleset():
     observed = observed_state()
     observed['ruleset'] = None
     assert verify_main_policy(observed, expected_main_state(APP_ID))
+
+
+# --- classic protection, wider blockers, server defaults ----------------------
+
+CLASSIC_BLOCKERS = [
+    {'required_pull_request_reviews': {'required_approving_review_count': 1}},
+    {'required_pull_request_reviews': {'require_code_owner_reviews': True}},
+    {'required_pull_request_reviews': {'require_last_push_approval': True}},
+    {'required_linear_history': {'enabled': True}},
+]
+EXTRA_BLOCKING_RULES = [
+    {'type': 'update'},
+    {'type': 'merge_queue', 'parameters': {}},
+    {'type': 'required_deployments', 'parameters': {
+        'required_deployment_environments': ['prod']}},
+    {'type': 'pull_request', 'parameters': {'require_code_owner_review': True}},
+    {'type': 'pull_request', 'parameters': {'require_last_push_approval': True}},
+    {'type': 'pull_request', 'parameters': {
+        'required_reviewers': [{'reviewer': {'id': 1, 'type': 'Team'}}]}},
+]
+
+
+def test_classic_protection_none_or_benign_does_not_block():
+    assert plan_main_updates(existing_state(classic_protection=None), APP_ID)
+    benign = {'required_pull_request_reviews': {'required_approving_review_count': 0,
+                                                'require_code_owner_reviews': False},
+              'required_linear_history': {'enabled': False}}
+    assert plan_main_updates(existing_state(classic_protection=benign), APP_ID)
+
+
+@pytest.mark.parametrize('classic', CLASSIC_BLOCKERS)
+def test_classic_protection_blocks_planning(classic):
+    with pytest.raises(RepositoryPolicyError) as raised:
+        plan_main_updates(existing_state(classic_protection=classic), APP_ID)
+    assert 'classic' in str(raised.value)
+
+
+@pytest.mark.parametrize('classic', CLASSIC_BLOCKERS)
+def test_classic_protection_fails_verification(classic):
+    observed = observed_state()
+    observed['classic_protection'] = classic
+    problems = verify_main_policy(observed, expected_main_state(APP_ID))
+    assert any('classic' in p for p in problems)
+    observed['classic_protection'] = None
+    assert verify_main_policy(observed, expected_main_state(APP_ID)) == []
+
+
+@pytest.mark.parametrize('blocking_rule', EXTRA_BLOCKING_RULES)
+def test_extra_non_owned_blockers(blocking_rule):
+    with pytest.raises(RepositoryPolicyError):
+        plan_main_updates(existing_state(rulesets=[other_ruleset([blocking_rule])]), APP_ID)
+    effective_only = existing_state(effective_rules=[
+        dict(blocking_rule, ruleset_source_type='Organization',
+             ruleset_source='CrazyBaran', ruleset_id=7)])
+    with pytest.raises(RepositoryPolicyError):
+        plan_main_updates(effective_only, APP_ID)
+
+
+def test_owned_code_owner_and_last_push_are_forced_false():
+    owned = owned_ruleset()
+    params = rule(owned, 'pull_request')['parameters']
+    params['require_code_owner_review'] = True
+    params['require_last_push_approval'] = True
+    payload = _put_payload(owned)
+    merged = rule(payload, 'pull_request')['parameters']
+    assert merged['require_code_owner_review'] is False
+    assert merged['require_last_push_approval'] is False
+
+
+def test_owned_blocking_rule_types_are_dropped():
+    owned = owned_ruleset()
+    owned['rules'] += [{'type': 'update'}, {'type': 'merge_queue', 'parameters': {}},
+                       {'type': 'required_deployments', 'parameters': {}}]
+    payload = _put_payload(owned)
+    assert not {'update', 'merge_queue', 'required_deployments'} & {
+        r['type'] for r in payload['rules']}
+
+
+def test_verify_flags_owned_code_owner_and_blocking_rules():
+    owned = owned_ruleset()
+    rule(owned, 'pull_request')['parameters']['require_code_owner_review'] = True
+    owned['rules'].append({'type': 'update'})
+    joined = '\n'.join(verify_main_policy(observed_state(ruleset=owned),
+                                          expected_main_state(APP_ID)))
+    assert 'require_code_owner_review' in joined
+    assert 'update' in joined
+
+
+def test_absent_server_default_parameters_are_not_drift():
+    owned = owned_ruleset()
+    del rule(owned, 'required_status_checks')['parameters']['do_not_enforce_on_create']
+    del rule(owned, 'pull_request')['parameters']['allowed_merge_methods']
+    state = existing_state(repository=repository(allow_auto_merge=True), rulesets=[owned])
+    assert plan_main_updates(state, APP_ID) == []
+    assert verify_main_policy(observed_state(ruleset=owned), expected_main_state(APP_ID)) == []

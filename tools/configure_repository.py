@@ -49,6 +49,13 @@ def _read_ruleset(api, base: str) -> dict | None:
     return None
 
 
+def _read_classic_protection(api, base: str) -> dict | None:
+    """Return classic branch protection for main, or None when main is unprotected."""
+    if api.request('GET', f'{base}/branches/main').get('protected'):
+        return api.request('GET', f'{base}/branches/main/protection')
+    return None
+
+
 def _gather(api, base: str, repository: dict) -> dict:
     rulesets = [api.request('GET', f'{base}/rulesets/{summary["id"]}')
                 for summary in api.pages(f'{base}/rulesets')]
@@ -57,6 +64,7 @@ def _gather(api, base: str, repository: dict) -> dict:
         'rulesets': rulesets,
         'effective_rules': api.pages(f'{base}/rules/branches/main'),
         'check_runs': api.pages(f'{base}/commits/main/check-runs'),
+        'classic_protection': _read_classic_protection(api, base),
     }
 
 
@@ -84,6 +92,7 @@ def _observe(api, base: str) -> dict:
         'repository': api.request('GET', base),
         'ruleset': _read_ruleset(api, base),
         'effective_rules': api.pages(f'{base}/rules/branches/main'),
+        'classic_protection': _read_classic_protection(api, base),
     }
 
 
@@ -135,6 +144,7 @@ def configure_main(api, repository: str, apply: bool) -> dict:
                 'ruleset': next((r for r in existing['rulesets']
                                  if r.get('name') == RULESET_NAME), None),
                 'effective_rules': existing['effective_rules'],
+                'classic_protection': existing['classic_protection'],
             }
             report['problems'] = verify_main_policy(observed, expected)
             report['verified'] = not report['problems']
@@ -146,6 +156,8 @@ def configure_main(api, repository: str, apply: bool) -> dict:
 
 def _write_report(report: dict, report_dir: str) -> Path:
     directory = Path(report_dir)
+    if not directory.is_absolute():
+        directory = Path(__file__).resolve().parents[1] / directory
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
     path = directory / f'main-{stamp}.json'

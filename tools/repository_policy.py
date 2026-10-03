@@ -25,6 +25,14 @@ REPOSITORY_SETTINGS = ('allow_auto_merge', 'allow_merge_commit')
 RULESET_FIELDS = ('name', 'target', 'enforcement', 'bypass_actors', 'conditions', 'rules')
 # Booleans where True is the weaker setting; every other boolean is stricter when True.
 WEAKER_WHEN_TRUE = ('do_not_enforce_on_create',)
+# pull_request parameters forced to the spec value on the owned ruleset (solo merge).
+FORCED_PARAMS = ('required_approving_review_count', 'require_code_owner_review',
+                 'require_last_push_approval')
+# Rule types that block a solo maintainer merging; dropped from the owned ruleset.
+BLOCKING_RULE_TYPES = ('required_linear_history', 'update', 'merge_queue',
+                       'required_deployments')
+# GitHub's server-side default when allowed_merge_methods is absent from a read-back.
+DEFAULT_MERGE_METHODS = ('merge', 'squash', 'rebase')
 
 
 class RepositoryPolicyError(Exception):
@@ -111,20 +119,51 @@ def _blockers(rule: dict, origin: str) -> list[str]:
     params = rule.get('parameters') or {}
     if rule_type == 'required_linear_history':
         return [f'{origin} requires linear history, which breaks merge-commit releases']
+    if rule_type in ('update', 'merge_queue', 'required_deployments'):
+        return [f'{origin} has a {rule_type} rule, which blocks the sole maintainer '
+                f'merging their own pull request']
     if rule_type != 'pull_request':
         return []
     problems = []
     if (params.get('required_approving_review_count') or 0) > 0:
         problems.append(
             f'{origin} requires approving reviews, which blocks the sole maintainer')
+    if params.get('require_code_owner_review'):
+        problems.append(f'{origin} requires code owner review, which blocks the sole maintainer')
+    if params.get('require_last_push_approval'):
+        problems.append(
+            f'{origin} requires last-push approval, which blocks the sole maintainer')
+    if params.get('required_reviewers'):
+        problems.append(f'{origin} has required reviewers, which blocks the sole maintainer')
     methods = params.get('allowed_merge_methods')
     if methods is not None and 'merge' not in methods:
         problems.append(f'{origin} does not allow merge-commit merges')
     return problems
 
 
+def _classic_blockers(classic: dict | None) -> list[str]:
+    """Blockers in classic branch protection (never modified by this tool)."""
+    if not classic:
+        return []
+    origin = 'classic branch protection on main'
+    problems = []
+    reviews = classic.get('required_pull_request_reviews') or {}
+    if (reviews.get('required_approving_review_count') or 0) > 0:
+        problems.append(
+            f'{origin} requires approving reviews, which blocks the sole maintainer')
+    if reviews.get('require_code_owner_reviews'):
+        problems.append(f'{origin} requires code owner reviews, which blocks the sole maintainer')
+    if reviews.get('require_last_push_approval'):
+        problems.append(
+            f'{origin} requires last-push approval, which blocks the sole maintainer')
+    if (classic.get('required_linear_history') or {}).get('enabled'):
+        problems.append(
+            f'{origin} requires linear history, which breaks merge-commit releases')
+    return problems
+
+
 def _incompatible_rules(existing: dict) -> list[str]:
-    problems: list[str] = []
+    problems: list[str] = _classic_blockers(existing.get('classic_protection'))
     owned_ids = {r.get('id') for r in existing.get('rulesets', [])
                  if r.get('name') == RULESET_NAME}
     for ruleset in existing.get('rulesets', []):
@@ -157,17 +196,19 @@ def _merge_params(existing: dict, desired: dict) -> dict:
         elif key == 'allowed_merge_methods':
             methods = list(existing[key] or [])
             merged[key] = methods if 'merge' in methods else methods + ['merge']
-        elif key == 'required_approving_review_count':
+        elif key in FORCED_PARAMS:
             merged[key] = value
         elif isinstance(value, bool):
             merged[key] = bool(existing[key] and value if key in WEAKER_WHEN_TRUE
                                else existing[key] or value)
+    if merged.get('required_reviewers'):
+        merged['required_reviewers'] = []
     return merged
 
 
 def _merge_rules(existing: list[dict], desired: list[dict]) -> list[dict]:
     by_type = {rule['type']: rule for rule in existing
-               if rule['type'] != 'required_linear_history'}
+               if rule['type'] not in BLOCKING_RULE_TYPES}
     merged = []
     for rule in desired:
         current = by_type.pop(rule['type'], None)
@@ -205,6 +246,11 @@ def _normalize_rule(rule: dict) -> dict:
     params = copy.deepcopy(rule.get('parameters'))
     if params is None:
         return {'type': rule['type']}
+    if rule['type'] == 'required_status_checks':
+        params.setdefault('do_not_enforce_on_create', False)
+    elif rule['type'] == 'pull_request':
+        if params.get('allowed_merge_methods') is None:
+            params['allowed_merge_methods'] = list(DEFAULT_MERGE_METHODS)
     checks = params.get('required_status_checks')
     if checks is not None:
         params['required_status_checks'] = sorted(
@@ -279,8 +325,14 @@ def _verify_params(rule_type: str, observed: dict, expected: dict) -> list[str]:
                     f'{rule_type}: required check {context!r} is not bound to '
                     f'integration {integration}')
         elif key == 'allowed_merge_methods':
-            if 'merge' not in (have or []):
+            if 'merge' not in (DEFAULT_MERGE_METHODS if have is None else have):
                 problems.append(f'{rule_type}: {key} must allow merge, got {have!r}')
+        elif key in FORCED_PARAMS and key != 'required_approving_review_count':
+            if have:
+                problems.append(f'{rule_type}: {key} must be false, got {have!r}')
+        elif key == 'do_not_enforce_on_create':
+            if bool(have):
+                problems.append(f'{rule_type}: {key} must be false')
         elif isinstance(want, bool) and key not in WEAKER_WHEN_TRUE:
             if want and have is not True:
                 problems.append(f'{rule_type}: {key} must be true')
@@ -308,6 +360,9 @@ def _verify_ruleset(observed: dict | None, expected: dict) -> list[str]:
     if ref_name.get('exclude'):
         problems.append(f'ruleset excludes refs: {ref_name["exclude"]!r}')
     observed_rules = {r['type']: r for r in observed.get('rules', [])}
+    for rule_type in BLOCKING_RULE_TYPES:
+        if rule_type in observed_rules:
+            problems.append(f'ruleset has a {rule_type} rule, which blocks the sole maintainer')
     for rule in expected['rules']:
         found = observed_rules.get(rule['type'])
         if found is None:
@@ -330,6 +385,7 @@ def verify_main_policy(observed: dict, expected: dict) -> list[str]:
         if repository.get(name) != want:
             problems.append(f'repository {name} is {repository.get(name)!r}, expected {want!r}')
     problems.extend(_verify_ruleset(observed.get('ruleset'), expected['ruleset']))
+    problems.extend(_classic_blockers(observed.get('classic_protection')))
     effective_types = {r.get('type') for r in observed.get('effective_rules', [])}
     for rule_type in REQUIRED_EFFECTIVE_TYPES:
         if rule_type not in effective_types:
