@@ -186,8 +186,9 @@ def test_prepare_never_publishes_release(fake_api):
     assert fake_api.created_tags == []
 ```
 
-Create the local `fake_api` fixture in this test file with the Task 1 transport
-interface and these recorded collections; do not depend on a live GitHub fixture.
+Create the local `fake_api` fixture in this test file implementing the
+prerequisite plan's `GitHubAPI.request`/`pages` interface (`tools/github_api.py`)
+with these recorded collections; do not depend on a live GitHub fixture.
 
 - [ ] **Step 2: Run `python -m pytest tests/test_release_prepare.py -q`.** Expect missing interface failures.
 
@@ -228,7 +229,7 @@ installed App validation belongs to CLI preflight, before applying operations.
 
 **Interfaces:** Produce `publish_release(api: GitHubAPI, evidence: dict, assets: dict[str, Path], prerelease: bool) -> dict`, `verify_release(api: GitHubAPI, tag: str, expected: dict, download_dir: Path) -> dict`. Verification receives an injected downloader/provenance verifier in tests. CLI `publish --evidence <json> --assets <dir> [--dry-run]` and `verify --tag <tag> --expected <json> --output <json>`. Trusted workflow passes credentials only at publication; subprocess runners cannot execute downloaded metadata as code.
 
-- [ ] **Step 1: Write tests.** Draft creation -> all expected assets upload -> digest/set verification -> publication; rc is prerelease and not latest. A retry reuses matching draft/tag/assets, mismatches refuse publication, asset replacement is never requested, unrelated API error is not interpreted as absent release. Test interrupted uploads and publish-response timeout reconciliation. Verification rejects tampered digest, wrong source/version, unknown metadata schema, missing provenance, wrong build identity, duplicate assets, or unexpected payload before extraction.
+- [ ] **Step 1: Write tests.** Draft creation -> all expected assets upload -> digest/set verification -> publication; rc is prerelease and not latest. `test_latest_only_for_newest_stable` publishes 0.2.2 after 0.3.0 exists and asserts `make_latest == 'false'`; `test_stable_notes_match_changelog` asserts the release body equals the `## [X.Y.Z]` CHANGELOG.md section from the source SHA and refuses publication when that section is absent. A retry reuses matching draft/tag/assets, mismatches refuse publication, asset replacement is never requested, unrelated API error is not interpreted as absent release. Test interrupted uploads and publish-response timeout reconciliation. Verification rejects tampered digest, wrong source/version, unknown metadata schema, missing provenance, wrong build identity, duplicate assets, or unexpected payload before extraction.
 ```python
 def test_publish_retry_never_replaces_asset(fake_api, candidate_evidence, candidate_assets):
     first = publish_release(fake_api, candidate_evidence, candidate_assets, prerelease=True)
@@ -243,7 +244,7 @@ and Task 1 artifacts. A fixture is not an approval source in production.
 
 - [ ] **Step 2: Run both new files.** Expect missing implementation.
 
-- [ ] **Step 3: Implement with bounded API/network operations.** Assets are ZIP, catalog.json, checksums, release-metadata.json, and build provenance bundle as applicable. Attest candidate build where it occurs, explicitly bind release source/digest, verify original build provenance on promotion, and retain GitHub immutable release attestation. Do not assert a later promotion runner built the original ZIP. Preserve candidate bytes in stable publication; generate stable URL metadata independently. Tag creation names the captured SHA; remote source is rechecked immediately beforehand.
+- [ ] **Step 3: Implement with bounded API/network operations.** Assets are ZIP, catalog.json, checksums, release-metadata.json, and build provenance bundle as applicable. Attest candidate build where it occurs, explicitly bind release source/digest, verify original build provenance on promotion, and retain GitHub immutable release attestation. Do not assert a later promotion runner built the original ZIP. Preserve candidate bytes in stable publication; generate stable URL metadata independently. Release notes come from the matching CHANGELOG.md section at the source SHA; set `make_latest` explicitly (`true` only when the version exceeds every published stable, otherwise `false`; always `false` for candidates). Tag creation names the captured SHA; remote source is rechecked immediately beforehand.
 - [ ] **Step 4: Run publication/verification/policy/artifact tests.** Expect failure recovery without duplicate release or asset mutation; published bytes must be verified before follow-through.
 - [ ] **Step 5: Commit:** `feat: publish and verify immutable release artifacts`.
 
