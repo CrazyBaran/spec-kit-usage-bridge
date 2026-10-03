@@ -52,7 +52,12 @@ def _read_ruleset(api, base: str) -> dict | None:
 def _read_classic_protection(api, base: str) -> dict | None:
     """Return classic branch protection for main, or None when main is unprotected."""
     if api.request('GET', f'{base}/branches/main').get('protected'):
-        return api.request('GET', f'{base}/branches/main/protection')
+        try:
+            return api.request('GET', f'{base}/branches/main/protection')
+        except GitHubAPIError as error:
+            if error.status == 404:  # protected only by a ruleset, no classic protection
+                return None
+            raise
     return None
 
 

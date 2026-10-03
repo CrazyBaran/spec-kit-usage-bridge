@@ -94,9 +94,22 @@ names exist on `main`.
 Do it in this order:
 
 1. **Before merging the rename PR**, an admin edits the `usage-bridge-main` ruleset
-   (repository settings UI, or `gh api` `PUT repos/<owner>/<repo>/rulesets/<id>`) to
-   remove the old required contexts and add the new ones, each bound to the GitHub
-   Actions app (integration id 15368).
+   to remove the old required contexts and add the new ones, each bound to the GitHub
+   Actions app (integration id 15368). In the settings UI, or with `gh`:
+
+   ```text
+   gh api repos/CrazyBaran/spec-kit-usage-bridge/rulesets --jq '.[] | select(.name=="usage-bridge-main") | .id'
+   gh api repos/CrazyBaran/spec-kit-usage-bridge/rulesets/<id> > ruleset.json
+   ```
+
+   Edit the `required_status_checks` contexts in `ruleset.json` (keep
+   `"integration_id": 15368` on each). Remove the server-only fields `id`, `node_id`,
+   `source`, `source_type`, `_links`, `created_at`, `updated_at` and
+   `current_user_can_bypass` before sending it back:
+
+   ```text
+   gh api --method PUT repos/CrazyBaran/spec-kit-usage-bridge/rulesets/<id> --input ruleset.json
+   ```
 2. Merge the rename PR; CI now runs with the new names on `main`.
 3. Update `REQUIRED_CONTEXTS` in `tools/repository_policy.py` (and the tests) through a
    normal pull request.

@@ -35,6 +35,7 @@ class FakeAPI:
         self.rulesets = {}
         self.protected = False
         self.classic = {}
+        self.classic_error = None
         self.check_runs = [{'name': n, 'app': dict(APP)} for n in REQUIRED_CONTEXTS]
         self.check_runs += [{'name': 'other', 'app': dict(APP)}]
 
@@ -69,6 +70,9 @@ class FakeAPI:
         if method == 'GET' and path == f'{BASE}/branches/main':
             return {'name': 'main', 'protected': self.protected}
         if method == 'GET' and path == f'{BASE}/branches/main/protection':
+            if self.classic_error:
+                raise GitHubAPIError(
+                f'{method} {path} failed', self.classic_error)
             return copy.deepcopy(self.classic)
         if method == 'GET' and path.startswith(f'{BASE}/rulesets/'):
             return copy.deepcopy(self.rulesets[int(path.rsplit('/', 1)[1])])
@@ -274,3 +278,21 @@ def test_relative_report_dir_resolves_against_repository_root(fake_api, tmp_path
         assert not (tmp_path / 'build').exists()
     finally:
         shutil.rmtree(target, ignore_errors=True)
+
+
+def test_protection_404_means_no_classic_protection(fake_api):
+    fake_api.protected = True  # GitHub reports true when only a ruleset applies
+    fake_api.classic_error = 404
+    report = configure_main(fake_api, REPO, apply=True)
+    assert report['errors'] == []
+    assert report['verified'] is True
+    assert any(c.path == f'{BASE}/branches/main/protection' for c in fake_api.calls)
+
+
+def test_protection_403_is_a_blocker_without_writes(fake_api):
+    fake_api.protected = True
+    fake_api.classic_error = 403
+    report = configure_main(fake_api, REPO, apply=True)
+    assert report['errors']
+    assert writes(fake_api) == []
+    assert report['verified'] is False
