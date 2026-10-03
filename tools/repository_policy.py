@@ -91,18 +91,18 @@ def _check_evidence(check_runs: list[dict], actions_app_id: int) -> list[str]:
     return problems
 
 
+def _matches_main(pattern: str) -> bool:
+    if pattern in ('~DEFAULT_BRANCH', '~ALL'):
+        return True
+    return fnmatch.fnmatchcase(MAIN_REF, pattern)
+
+
 def _applies_to_main(ruleset: dict) -> bool:
     if ruleset.get('target') != 'branch' or ruleset.get('enforcement') != 'active':
         return False
     ref_name = (ruleset.get('conditions') or {}).get('ref_name') or {}
-
-    def matches(pattern: str) -> bool:
-        if pattern in ('~DEFAULT_BRANCH', '~ALL'):
-            return True
-        return fnmatch.fnmatchcase(MAIN_REF, pattern)
-
-    included = any(matches(p) for p in ref_name.get('include', []))
-    excluded = any(fnmatch.fnmatchcase(MAIN_REF, p) for p in ref_name.get('exclude', []))
+    included = any(_matches_main(p) for p in ref_name.get('include', []))
+    excluded = any(_matches_main(p) for p in ref_name.get('exclude', []))
     return included and not excluded
 
 
@@ -114,7 +114,7 @@ def _blockers(rule: dict, origin: str) -> list[str]:
     if rule_type != 'pull_request':
         return []
     problems = []
-    if params.get('required_approving_review_count', 0) > 0:
+    if (params.get('required_approving_review_count') or 0) > 0:
         problems.append(
             f'{origin} requires approving reviews, which blocks the sole maintainer')
     methods = params.get('allowed_merge_methods')
@@ -125,13 +125,16 @@ def _blockers(rule: dict, origin: str) -> list[str]:
 
 def _incompatible_rules(existing: dict) -> list[str]:
     problems: list[str] = []
+    owned_ids = {r.get('id') for r in existing.get('rulesets', [])
+                 if r.get('name') == RULESET_NAME}
     for ruleset in existing.get('rulesets', []):
-        owned = ruleset.get('name') == RULESET_NAME
-        if owned or _applies_to_main(ruleset):
+        if ruleset.get('name') != RULESET_NAME and _applies_to_main(ruleset):
             origin = f'ruleset {ruleset.get("name")!r}'
             for rule in ruleset.get('rules', []):
                 problems.extend(_blockers(rule, origin))
     for rule in existing.get('effective_rules', []):
+        if rule.get('ruleset_id') in owned_ids:
+            continue
         origin = (f'effective rule from {rule.get("ruleset_source_type")} '
                   f'{rule.get("ruleset_source")} (ruleset {rule.get("ruleset_id")})')
         problems.extend(_blockers(rule, origin))
@@ -152,17 +155,19 @@ def _merge_params(existing: dict, desired: dict) -> dict:
             kept = [c for c in existing[key] if c.get('context') not in wanted]
             merged[key] = kept + copy.deepcopy(value)
         elif key == 'allowed_merge_methods':
-            merged[key] = list(existing[key])
+            methods = list(existing[key] or [])
+            merged[key] = methods if 'merge' in methods else methods + ['merge']
         elif key == 'required_approving_review_count':
-            merged[key] = max(existing[key], value)
+            merged[key] = value
         elif isinstance(value, bool):
-            merged[key] = (existing[key] and value if key in WEAKER_WHEN_TRUE
-                           else existing[key] or value)
+            merged[key] = bool(existing[key] and value if key in WEAKER_WHEN_TRUE
+                               else existing[key] or value)
     return merged
 
 
 def _merge_rules(existing: list[dict], desired: list[dict]) -> list[dict]:
-    by_type = {rule['type']: rule for rule in existing}
+    by_type = {rule['type']: rule for rule in existing
+               if rule['type'] != 'required_linear_history'}
     merged = []
     for rule in desired:
         current = by_type.pop(rule['type'], None)
@@ -184,7 +189,8 @@ def _union_ruleset(owned: dict, desired: dict) -> dict:
     if MAIN_REF not in include:
         include.append(MAIN_REF)
     ref_name['include'] = include
-    ref_name.setdefault('exclude', [])
+    ref_name['exclude'] = [p for p in ref_name.get('exclude', [])
+                           if not _matches_main(p)]
     return {
         'name': RULESET_NAME,
         'target': 'branch',

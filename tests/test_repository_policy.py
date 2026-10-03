@@ -294,11 +294,82 @@ def test_incompatible_inherited_rules_block(blocking_rule):
         plan_main_updates(effective_only, APP_ID)
 
 
-def test_owned_review_count_above_zero_blocks():
+def _put_payload(owned):
+    state = existing_state(
+        repository=repository(allow_auto_merge=True), rulesets=[owned])
+    [op] = plan_main_updates(state, APP_ID)
+    assert op['method'] == 'PUT'
+    stable = existing_state(
+        repository=repository(allow_auto_merge=True),
+        rulesets=[dict(op['payload'], **SERVER_FIELDS)])
+    assert plan_main_updates(stable, APP_ID) == []
+    return op['payload']
+
+
+def test_owned_review_count_is_reconciled_to_zero():
     owned = owned_ruleset()
-    rule(owned, 'pull_request')['parameters']['required_approving_review_count'] = 1
-    with pytest.raises(RepositoryPolicyError):
-        plan_main_updates(existing_state(rulesets=[owned]), APP_ID)
+    rule(owned, 'pull_request')['parameters']['required_approving_review_count'] = 2
+    payload = _put_payload(owned)
+    assert rule(payload, 'pull_request')['parameters'][
+        'required_approving_review_count'] == 0
+
+
+def test_owned_merge_methods_gain_merge():
+    owned = owned_ruleset()
+    rule(owned, 'pull_request')['parameters']['allowed_merge_methods'] = ['squash']
+    payload = _put_payload(owned)
+    assert rule(payload, 'pull_request')['parameters']['allowed_merge_methods'] == [
+        'squash', 'merge']
+
+
+def test_owned_linear_history_is_dropped():
+    owned = owned_ruleset()
+    owned['rules'].append({'type': 'required_linear_history'})
+    payload = _put_payload(owned)
+    assert 'required_linear_history' not in {r['type'] for r in payload['rules']}
+
+
+def test_owned_do_not_enforce_on_create_is_corrected():
+    owned = owned_ruleset()
+    rule(owned, 'required_status_checks')['parameters']['do_not_enforce_on_create'] = True
+    payload = _put_payload(owned)
+    assert rule(payload, 'required_status_checks')['parameters'][
+        'do_not_enforce_on_create'] is False
+
+
+def test_owned_exclude_of_main_is_removed():
+    for pattern in ('refs/heads/main', 'refs/heads/m*', '~DEFAULT_BRANCH', '~ALL'):
+        owned = owned_ruleset()
+        owned['conditions']['ref_name']['exclude'] = [pattern, 'refs/heads/other']
+        payload = _put_payload(owned)
+        assert payload['conditions']['ref_name']['exclude'] == ['refs/heads/other']
+
+
+def test_owned_effective_rules_do_not_block():
+    bad = {'type': 'required_linear_history', 'ruleset_source_type': 'Repository',
+           'ruleset_source': FULL_NAME, 'ruleset_id': 42}
+    state = existing_state(
+        repository=repository(allow_auto_merge=True),
+        rulesets=[owned_ruleset()], effective_rules=[bad])
+    assert plan_main_updates(state, APP_ID) == []
+
+
+def test_missing_review_count_does_not_crash():
+    inherited = other_ruleset([{'type': 'pull_request', 'parameters': {
+        'required_approving_review_count': None}}])
+    assert plan_main_updates(existing_state(rulesets=[inherited]), APP_ID)
+
+
+def test_non_owned_rulesets_not_applying_to_main_do_not_block():
+    bad = [{'type': 'required_linear_history'}]
+    other_ref = other_ruleset(bad)
+    other_ref['conditions']['ref_name']['include'] = ['refs/heads/release/*']
+    disabled = other_ruleset(bad, name='off')
+    disabled['enforcement'] = 'disabled'
+    evaluate = other_ruleset(bad, name='eval')
+    evaluate['enforcement'] = 'evaluate'
+    state = existing_state(rulesets=[other_ref, disabled, evaluate])
+    assert plan_main_updates(state, APP_ID)[-1]['method'] == 'POST'
 
 
 def test_plan_does_not_mutate_input():
