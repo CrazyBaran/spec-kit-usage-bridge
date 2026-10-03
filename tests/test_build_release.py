@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import zipfile
@@ -9,11 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = 'https://github.com/CrazyBaran/spec-kit-usage-bridge'
 
 
-def build(*args):
+def build(*args, **kwargs):
     spec = importlib.util.spec_from_file_location('build_release', ROOT / 'tools/build_release.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.build(*args)
+    return module.build(*args, **kwargs)
 
 
 def test_zip_layout(tmp_path):
@@ -48,6 +49,15 @@ def test_catalog_entry(tmp_path):
     assert (entry['version'], entry['requires']['speckit_version'], entry['license']) == ('0.2.1', '>=1.0.12', 'MIT')
     assert entry['provides']['commands'] == 4
     assert entry['provides']['hooks'] == 3
+
+
+def test_candidate_catalog_is_tag_pinned(tmp_path):
+    archive, catalog = build(ROOT, '0.2.1', tmp_path, BASE, release_tag='v0.2.1-rc.1')
+    data = json.loads(catalog.read_text())
+    assert data['extensions']['usage-bridge']['version'] == '0.2.1'
+    assert '/download/v0.2.1-rc.1/' in data['extensions']['usage-bridge']['download_url']
+    assert '/download/v0.2.1-rc.1/' in data['catalog_url']
+    assert data['extensions']['usage-bridge']['sha256'] == hashlib.sha256(archive.read_bytes()).hexdigest()
 
 
 def test_version_must_match_manifest(tmp_path):
