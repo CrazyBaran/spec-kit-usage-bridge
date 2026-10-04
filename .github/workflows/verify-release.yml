@@ -74,7 +74,7 @@ jobs:
       - name: Exercise the published archive without publication credentials
         env:
           UB_REQUIRE_INTEGRATION: '1'
-          UB_SPEC_KIT_REF: v1.0.12
+          UB_SPEC_KIT_REF: ${{ matrix.host == 'minimum' && 'v1.0.12' || 'v1.1.0' }}
           UB_RELEASE_ARCHIVE: ${{ github.workspace }}/downloaded/usage-bridge-v${{ needs.download.outputs.version }}.zip
         run: python -m pytest tests/integration/test_release_install.py -q
   complete:

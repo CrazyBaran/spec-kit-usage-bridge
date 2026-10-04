@@ -13,7 +13,7 @@ import yaml
 from build_release import build
 from release.artifacts import runtime_members, safe_source, validate_archive, validate_release_assets, write_catalog
 from release.context import decide_gate
-from release.policy import ACTIONS_APP_ID, WAIVABLE_CHECKS, ReleasePolicyError, parse_version
+from release.policy import ACTIONS_APP_ID, HOST_REFS, WAIVABLE_CHECKS, ReleasePolicyError, parse_version
 
 COMMANDS = ('install', 'checkpoint', 'capture', 'report', 'check', 'upgrade')
 
@@ -94,7 +94,7 @@ def collect_run_evidence(api, repository: str, source_sha: str, run_id: int, att
         by_name[name] = job
     checks = []
     runtime = []
-    hosts = host_refs or {'minimum': 'v1.0.12', 'current': 'v1.0.12'}
+    hosts = host_refs or HOST_REFS
     for os_name in ('ubuntu-latest', 'windows-latest'):
         for host in ('minimum', 'current'):
             name = f'{install_prefix} ({os_name}, {host})'

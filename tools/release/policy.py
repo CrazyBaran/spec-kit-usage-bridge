@@ -7,6 +7,8 @@ from pathlib import Path
 
 from release.models import CheckResult, GateDecision, OverrideRequest
 
+HOST_REFS = {'minimum': 'v1.0.12', 'current': 'v1.1.0'}
+
 _VERSION = re.compile(r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$')
 _METADATA_FIELDS = (
     'schema_version', 'repository', 'version', 'tag', 'source_sha', 'run_id', 'attempt',

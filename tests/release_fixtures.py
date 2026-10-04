@@ -15,13 +15,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from release.policy import HOST_REFS
+
 ROOT = Path(__file__).resolve().parents[1]
-MIN_HOST = 'v1.0.12'
 MOVING_REFS = {'main', 'master', 'HEAD'}
 
 
 def host_ref() -> str:
-    return os.environ.get('UB_SPEC_KIT_REF', MIN_HOST)
+    return os.environ.get('UB_SPEC_KIT_REF', HOST_REFS['current'])
 
 
 def specify_command(ref: str) -> list[str]:
@@ -38,10 +39,11 @@ def _require_uvx() -> None:
     pytest.skip('uvx is unavailable')
 
 
-def _run(cmd: list[str], cwd: Path | None = None, **kwargs) -> subprocess.CompletedProcess[str]:
+def _run(cmd: list[str], cwd: Path | None = None, *,
+         env: dict[str, str] | None = None, **kwargs) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace',
-        timeout=240, env=dict(os.environ, PYTHONIOENCODING='utf-8'), **kwargs,
+        timeout=240, env={**os.environ, 'PYTHONIOENCODING': 'utf-8', **(env or {})}, **kwargs,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     return result

@@ -12,6 +12,37 @@ REPO = 'CrazyBaran/spec-kit-usage-bridge'
 SHA = 'a' * 40
 
 
+def test_collected_runtime_records_use_supported_host_refs():
+    from release.orchestration import collect_run_evidence
+    from test_release_publication import FakeAPI
+
+    result = collect_run_evidence(FakeAPI(), REPO, SHA, 1, 1, 'b' * 64)
+    assert {record['host']: record['host_ref'] for record in result['runtime']} == {
+        'minimum': 'v1.0.12', 'current': 'v1.1.0'}
+
+
+def test_archive_host_default_uses_current_stable(monkeypatch):
+    from release_fixtures import host_ref
+
+    monkeypatch.delenv('UB_SPEC_KIT_REF', raising=False)
+    assert host_ref() == 'v1.1.0'
+    monkeypatch.setenv('UB_SPEC_KIT_REF', 'v1.0.12')
+    assert host_ref() == 'v1.0.12'
+
+
+def test_native_subprocess_environment_override_preserves_inherited_values(monkeypatch):
+    import sys
+
+    from release_fixtures import _run
+
+    monkeypatch.setenv('ALIGNMENT_INHERITED', 'kept')
+    result = _run([sys.executable, '-c',
+                   'import json, os; print(json.dumps([os.environ["ALIGNMENT_INHERITED"], '
+                   'os.environ["SPECKIT_CATALOG_URL"], os.environ["PYTHONIOENCODING"]]))'],
+                  env={'SPECKIT_CATALOG_URL': 'http://127.0.0.1/catalog.json'})
+    assert json.loads(result.stdout) == ['kept', 'http://127.0.0.1/catalog.json', 'utf-8']
+
+
 def test_build_command_refuses_a_checkout_at_a_different_sha(tmp_path, capsys):
     code = main(['bundle', '--checkout', str(ROOT), '--source-sha', SHA,
                  '--version', '0.2.1', '--tag', 'v0.2.1-rc.1', '--run-id', '7',

@@ -1,13 +1,26 @@
 """Isolated install of a built archive. Skips without uvx unless UB_REQUIRE_INTEGRATION=1."""
+import hashlib
+import json
 import os
+import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from builders import SessionBuilder, stop_payload
-from release_fixtures import build_release_archive, install_archive_project
+from release_fixtures import (
+    _require_uvx,
+    _run,
+    _serve,
+    build_release_archive,
+    host_ref,
+    install_archive_project,
+    specify_command,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -28,7 +41,7 @@ def test_archive_contains_exact_installed_surface(tmp_path, release_archive):
 
 
 def test_installed_runtime_without_repo_pythonpath(tmp_path, release_archive):
-    project = install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'))
+    project = install_archive_project(tmp_path, release_archive, host_ref())
     feature = project / 'specs/001-login'
     feature.mkdir(parents=True)
     (project / '.specify/feature.json').write_text(
@@ -74,23 +87,93 @@ def test_installed_runtime_without_repo_pythonpath(tmp_path, release_archive):
     assert check.returncode == 0, check.stdout + check.stderr
 
 
-def test_upgrade_preserves_config_and_reports(tmp_path, release_archive):
-    project = install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'))
+def test_forced_reinstall_preserves_config_and_reports(tmp_path, release_archive):
+    project = install_archive_project(tmp_path, release_archive, host_ref())
     feature = project / 'specs/001-login'
     feature.mkdir(parents=True)
     report = feature / 'token-usage.md'
     report.write_text('kept history\n', encoding='utf-8')
     local = project / '.specify/extensions/usage-bridge/usage-bridge-config.local.yml'
     local.write_text('author:\n  alias: kept-author\n', encoding='utf-8')
-    install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'),
+    install_archive_project(tmp_path, release_archive, host_ref(),
                             project=project, force=True)
     assert report.read_text(encoding='utf-8') == 'kept history\n'
     assert 'kept-author' in local.read_text(encoding='utf-8')
 
 
+def _archive_with_manifest(archive: Path, output: Path, manifest: dict) -> Path:
+    with zipfile.ZipFile(archive) as source, zipfile.ZipFile(output, 'w') as target:
+        for member in source.infolist():
+            data = (yaml.safe_dump(manifest).encode('utf-8')
+                    if member.filename == 'usage-bridge/extension.yml' else source.read(member))
+            target.writestr(member, data)
+    return output
+
+
+def test_native_install_rejects_unsupported_manifest_schema(tmp_path, release_archive):
+    _require_uvx()
+    with zipfile.ZipFile(release_archive) as archive:
+        manifest = yaml.safe_load(archive.read('usage-bridge/extension.yml'))
+    manifest['schema_version'] = 'unsupported-test-schema'
+    invalid = _archive_with_manifest(release_archive, tmp_path / 'invalid.zip', manifest)
+    project = tmp_path / 'invalid-project'
+    command = specify_command(host_ref())
+    _run(command + ['init', str(project), '--integration', 'claude',
+                    '--ignore-agent-tools', '--non-interactive'])
+    with _serve(invalid.parent) as base:
+        result = subprocess.run(
+            command + ['extension', 'add', 'usage-bridge', '--from', f'{base}/{invalid.name}'],
+            cwd=project, input='y\n', capture_output=True, text=True, encoding='utf-8',
+            errors='replace', timeout=240, env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert 'Unsupported schema version' in result.stdout + result.stderr
+    assert not (project / '.specify/extensions/usage-bridge/extension.yml').exists()
+    listed = _run(command + ['extension', 'list', '--json'], cwd=project)
+    assert not any(item['id'] == 'usage-bridge' for item in json.loads(listed.stdout))
+
+
+def test_native_update_preserves_config_and_reports(tmp_path, release_archive):
+    target_digest = hashlib.sha256(release_archive.read_bytes()).hexdigest()
+    with zipfile.ZipFile(release_archive) as archive:
+        target_manifest_bytes = archive.read('usage-bridge/extension.yml')
+    manifest = yaml.safe_load(target_manifest_bytes)
+    version = manifest['extension']['version']
+    assert tuple(map(int, version.split('.'))) > (0, 0, 0)
+    older_manifest = {**manifest, 'extension': {**manifest['extension'], 'version': '0.0.0'}}
+    older = _archive_with_manifest(release_archive, tmp_path / 'older.zip', older_manifest)
+    project = install_archive_project(tmp_path, older, host_ref())
+    installed = project / '.specify/extensions/usage-bridge'
+    assert yaml.safe_load((installed / 'extension.yml').read_text(encoding='utf-8'))['extension']['version'] == '0.0.0'
+    report = project / 'specs/001-login/token-usage.md'
+    report.parent.mkdir(parents=True)
+    report.write_text('kept history\n', encoding='utf-8')
+    local = installed / 'usage-bridge-config.local.yml'
+    local.write_text('author:\n  alias: kept-author\n', encoding='utf-8')
+    serving = tmp_path / 'update-server'
+    serving.mkdir()
+    target = serving / release_archive.name
+    shutil.copyfile(release_archive, target)
+    with _serve(serving) as base:
+        catalog_url = f'{base}/catalog.json'
+        entry = {**manifest['extension'], 'download_url': f'{base}/{target.name}',
+                 'sha256': target_digest, 'requires': manifest['requires'],
+                 'provides': {'commands': len(manifest['provides']['commands']),
+                              'hooks': len(manifest['hooks'])}, 'tags': manifest['tags']}
+        (serving / 'catalog.json').write_text(json.dumps({
+            'schema_version': '1.0', 'catalog_url': catalog_url,
+            'extensions': {'usage-bridge': entry}}), encoding='utf-8')
+        _run(specify_command(host_ref()) + ['extension', 'update', 'usage-bridge'],
+             cwd=project, input='y\n', env={'SPECKIT_CATALOG_URL': catalog_url})
+    assert (installed / 'extension.yml').read_bytes() == target_manifest_bytes
+    assert yaml.safe_load((installed / 'extension.yml').read_text(encoding='utf-8'))['extension']['version'] == version
+    assert report.read_text(encoding='utf-8') == 'kept history\n'
+    assert 'kept-author' in local.read_text(encoding='utf-8')
+    assert hashlib.sha256(release_archive.read_bytes()).hexdigest() == target_digest
+
+
 @pytest.mark.parametrize('integration', ['claude', 'codex', 'cursor-agent'])
 def test_archive_install_renders_commands(tmp_path, release_archive, integration):
-    project = install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'),
+    project = install_archive_project(tmp_path, release_archive, host_ref(),
                                       integration=integration)
     folder = {'claude': '.claude', 'codex': '.agents', 'cursor-agent': '.cursor'}[integration]
     skill = project / folder / 'skills/speckit-usage-bridge-report/SKILL.md'

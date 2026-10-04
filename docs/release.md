@@ -129,8 +129,11 @@ does not merge it.
    branch. The job does not create a tag or a release.
 2. Dispatch Release with the same version and the exact release commit. CI runs
    on that SHA alongside the install matrix (Linux and Windows, minimum and current
-   Spec Kit host, Python 3.12). Both host channels currently resolve to the
-   reviewed tag `v1.0.12`. Publication calls `python tools/release_cli.py publish`
+   Spec Kit host, Python 3.12). Minimum compatibility uses `v1.0.12`; current
+   uses newest stable verified for this cycle, `v1.1.0`. Ordinary CI integration
+   also uses `v1.1.0`. Host refs are explicit and checked against evidence
+   reporting; newer releases are adopted through a reviewed change.
+   Publication calls `python tools/release_cli.py publish`
    and does not call `gh release create`.
 3. Dispatch Promote release with the stable version, the published candidate tag,
    and the same source SHA. A missing, draft, or stale candidate is refused. A
@@ -168,6 +171,38 @@ and attempt. Credential-free installation jobs consume those exact bytes. The
 publisher collects actual Actions results, verifies provenance, and rechecks remote
 branch/tag state before writes. It publishes the ZIP, `catalog.json`, `SHA256SUMS`,
 and `release-metadata.json`.
+
+### Native host checks and local release checks
+
+| Responsibility | Owner and evidence |
+|---|---|
+| Manifest semantics, compatibility, command registration and updates | Public Spec Kit CLI, invoked in disposable projects against explicit supported refs |
+| Required runtime, legal and vendor files; deterministic extension ZIP | Usage Bridge builder and tracked-file allowlist |
+| Installed checkpoint, capture, report and check behavior | Usage Bridge installed-archive integration tests |
+| Published bytes, source SHA, checksums, attestations and immutable candidate history | Usage Bridge release verifier and trusted Actions job evidence |
+| Community catalog acceptance | Spec Kit's upstream submission review; local submission remains explicit and opt-in |
+
+The install suite checks native rejection of an unsupported manifest schema and
+absence of a registered extension after failure. Forced reinstall uses
+`extension add --force` and checks preservation of local configuration and reports.
+A separate native `extension update` test installs an older fixture version, then
+updates through a local catalog to the exact supplied release ZIP. It checks the
+installed version and manifest, preserved user data, and unchanged target digest.
+Both release host lanes run these checks before their `upgrade` evidence is accepted.
+
+The fixture's local `release-verification.json` records a host ref and archive name
+for diagnostics. It is not the signed release proof; the pipeline separately binds
+job results, source SHA, run/attempt and artifact digests. Installation acceptance
+cannot replace offline archive bounds, product allowlists or release provenance.
+No local release gate was removed on the basis of native feature overlap.
+
+An extension ZIP uses `extension.yml`. A bundled extension ships within Spec Kit's
+host package. A Spec Kit bundle uses `bundle.yml` and has native build/validate
+commands; those commands do not build this extension's release archive. Unreleased
+source may inform future designs only with its exact SHA recorded, independently
+of mandatory stable-host evidence. No official nightly artifact is assumed.
+
+### Verification of published assets
 
 `verify-release.yml` downloads those four assets, verifies their digests, contents,
 and signed provenance, then exercises installation and runtime commands again on

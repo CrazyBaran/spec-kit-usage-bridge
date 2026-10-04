@@ -130,7 +130,7 @@ jobs:
       - name: Install and exercise the exact attested archive
         env:
           UB_REQUIRE_INTEGRATION: '1'
-          UB_SPEC_KIT_REF: v1.0.12
+          UB_SPEC_KIT_REF: ${{ matrix.host == 'minimum' && 'v1.0.12' || 'v1.1.0' }}
           UB_RELEASE_ARCHIVE: ${{ github.workspace }}/release-assets/usage-bridge-v${{ inputs.version }}.zip
         run: python -m pytest tests/integration/test_release_install.py -q
   override:

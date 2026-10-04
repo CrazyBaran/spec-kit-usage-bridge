@@ -53,6 +53,21 @@ def test_release_install_matrix_precedes_publication():
     assert wf('ci.yml')['jobs']['lint']['timeout-minutes'] == 20
 
 
+def test_release_host_refs_match_collected_evidence():
+    expected = {'minimum': 'v1.0.12', 'current': 'v1.1.0'}
+    expression = "${{ matrix.host == 'minimum' && 'v1.0.12' || 'v1.1.0' }}"
+    for name, job_name in (('release-pipeline.yml', 'install'), ('verify-release.yml', 'verify-install')):
+        job = wf(name)['jobs'][job_name]
+        assert job['strategy']['matrix'] == {
+            'os': ['ubuntu-latest', 'windows-latest'], 'host': ['minimum', 'current']}
+        step = next(step for step in job['steps'] if 'UB_SPEC_KIT_REF' in step.get('env', {}))
+        assert step['env']['UB_SPEC_KIT_REF'] == expression
+    from release.policy import HOST_REFS
+
+    assert HOST_REFS == expected
+    assert wf('ci.yml')['jobs']['integration']['env']['UB_SPEC_KIT_REF'] == expected['current']
+
+
 def test_ci_uses_nonempty_release_sha_without_assuming_a_workflow_call_event():
     for job in wf('ci.yml')['jobs'].values():
         checkout = next(step for step in job['steps'] if 'actions/checkout@' in step.get('uses', ''))
