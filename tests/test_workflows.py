@@ -21,11 +21,11 @@ def test_ci_matrix_and_jobs():
     assert all(text in steps for text in ('ruff check', '-m contract', 'UB_REQUIRE_INTEGRATION', 'setup-uv'))
 
 
-def test_release_builds_and_publishes():
-    rel = wf('release.yml')
-    assert rel[True]['push']['tags'] == ['v*'] and rel['jobs']['release']['needs'] == 'ci'
-    assert rel['jobs']['release']['permissions'] == {'contents': 'write'}
-    assert 'tools/build_release.py' in json.dumps(rel) and 'gh release create' in json.dumps(rel)
+def test_tag_push_cannot_publish():
+    release = wf('release.yml')
+    triggers = release.get('on', release.get(True))
+    assert 'workflow_dispatch' in triggers
+    assert 'push' not in triggers
 
 
 def test_setup_uv_uses_existing_release_tag():

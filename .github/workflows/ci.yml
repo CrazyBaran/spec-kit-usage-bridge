@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
   workflow_call:
+    inputs:
+      source_sha:
+        description: Exact release commit to test. Empty on push and pull_request.
+        required: false
+        type: string
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -10,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.source_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -27,6 +35,8 @@ jobs:
       UB_PERF_MARGIN: '3'
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.source_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
@@ -42,6 +52,8 @@ jobs:
       UB_REQUIRE_INTEGRATION: '1'
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_call' && inputs.source_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'

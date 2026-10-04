@@ -1,4 +1,4 @@
-name: Release
+name: Prepare release
 on:
   workflow_dispatch:
     inputs:
@@ -6,35 +6,30 @@ on:
         description: Release version X.Y.Z
         required: true
         type: string
-      source_sha:
-        description: Exact release commit
+      main_sha:
+        description: Fresh main SHA the branch is cut from
         required: true
         type: string
 permissions:
   contents: read
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-    with:
-      source_sha: ${{ inputs.source_sha }}
-  publish:
-    needs: ci
+  prepare:
     if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: release-publish
-    timeout-minutes: 20
+    timeout-minutes: 10
     concurrency:
       group: usage-bridge-release
       cancel-in-progress: false
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ inputs.main_sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements-dev.txt
-      - name: Publish only through the release CLI
-        run: python tools/release_cli.py prepare --version "${{ inputs.version }}" --main-sha "${{ inputs.source_sha }}" --output release-prepare.json --dry-run
+      - run: python tools/release_cli.py prepare --version "${{ inputs.version }}" --main-sha "${{ inputs.main_sha }}" --output release-prepare.json
