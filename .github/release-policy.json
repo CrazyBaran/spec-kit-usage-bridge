@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "repository": "CrazyBaran/spec-kit-usage-bridge",
+  "canonical_branch": "main",
+  "actions_app_id": 15368,
+  "required_checks": [
+    "lint",
+    "test (ubuntu-latest, 3.9)",
+    "test (ubuntu-latest, 3.x)",
+    "test (windows-latest, 3.9)",
+    "test (windows-latest, 3.x)",
+    "integration (ubuntu-latest)",
+    "integration (windows-latest)"
+  ],
+  "artifact_limits": {
+    "max_compressed_bytes": 26214400,
+    "max_expanded_bytes": 104857600,
+    "max_members": 1000
+  },
+  "environments": ["release-publish", "release-override", "catalog-submit"]
+}
