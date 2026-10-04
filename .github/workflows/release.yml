@@ -7,118 +7,32 @@ on:
         required: true
         type: string
       source_sha:
-        description: Exact release commit
+        description: Exact release branch commit
         required: true
         type: string
       override_reason:
-        description: Reason for a quality-check waiver. Empty skips the override environment.
-        required: false
+        description: Reason for an explicitly approved quality waiver
         type: string
         default: ''
+      waived_checks:
+        description: JSON array of exact failed quality check names
+        type: string
+        default: '[]'
+concurrency:
+  group: usage-bridge-release
+  cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
+  id-token: write
+  attestations: write
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
+  pipeline:
+    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/release-pipeline.yml
+    secrets: inherit
     with:
+      version: ${{ inputs.version }}
       source_sha: ${{ inputs.source_sha }}
-  install:
-    needs: ci
-    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        host: [minimum, current]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.source_sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Resolve the reviewed Spec Kit host
-        env:
-          HOST_CHANNEL: ${{ matrix.host }}
-        run: python -c "import os, pathlib; channel=os.environ['HOST_CHANNEL']; pathlib.Path('host-ref.txt').write_text(channel + ' v1.0.12\n')"
-      - name: Install the archive against the pinned host
-        env:
-          UB_REQUIRE_INTEGRATION: '1'
-          UB_SPEC_KIT_REF: v1.0.12
-        run: python -m pytest tests/integration/test_release_install.py -q
-  override:
-    needs: [ci, install]
-    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main' && github.event.inputs.override_reason != ''
-    runs-on: ubuntu-latest
-    environment: release-override
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.source_sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Bind override approval to this run attempt
-        run: python tools/release_cli.py gate --evidence gate-evidence.json --output gate.json
-  evaluate:
-    needs: [ci, install]
-    if: always() && github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.source_sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Distinguish quality failures from mandatory failures
-        run: python tools/release_cli.py gate --evidence gate-evidence.json --output gate.json
-      - name: Upload gate evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-gate
-          path: gate.json
-          retention-days: 14
-          if-no-files-found: ignore
-  publish:
-    needs: [ci, install, evaluate]
-    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: release-publish
-    timeout-minutes: 20
-    # Actions concurrency has no queue:max key. The group serializes publication.
-    concurrency:
-      group: usage-bridge-release
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.source_sha }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.12'
-      - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Assemble the candidate context
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: python tools/release_cli.py candidate-context --version "$RELEASE_VERSION" --source-sha "$SOURCE_SHA" --output candidate-context.json
-      - name: Publish only through the release CLI
-        run: python tools/release_cli.py publish --evidence release-evidence.json --assets-dir release-assets --output publish.json
+      override_reason: ${{ inputs.override_reason }}
+      waived_checks: ${{ inputs.waived_checks }}

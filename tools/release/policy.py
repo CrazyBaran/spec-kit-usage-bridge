@@ -102,7 +102,7 @@ def require_candidate(version: str, tip_sha: str, candidate: dict | None) -> Non
     same_source = candidate.get('version') == version and candidate.get('sha') == tip_sha
     tag = str(candidate.get('tag') or '')
     prefix = f'v{version}-rc.'
-    numeric_tag = tag.startswith(prefix) and tag[len(prefix):].isdigit()
+    numeric_tag = bool(re.fullmatch(re.escape(prefix) + r'[1-9]\d*', tag))
     if not (published and same_source and numeric_tag):
         raise ReleasePolicyError('candidate must be a published prerelease of this version at the release tip')
 
@@ -114,4 +114,67 @@ def require_metadata(data: dict) -> dict:
     if missing:
         raise ReleasePolicyError('release metadata missing ' + ', '.join(missing))
     parse_version(str(data['version']))
+    if data['repository'] != _POLICY['repository']:
+        raise ReleasePolicyError('release repository is not the canonical repository')
+    if not re.fullmatch(r'[0-9a-f]{40}', str(data['source_sha'])):
+        raise ReleasePolicyError('release source must be a full commit SHA')
+    if not re.fullmatch(r'[0-9a-f]{64}', str(data['zip_sha256'])):
+        raise ReleasePolicyError('release archive must name a SHA-256 digest')
+    version = re.escape(data['version'])
+    if not re.fullmatch(r'v' + version + r'(?:-rc\.[1-9]\d*)?', str(data['tag'])):
+        raise ReleasePolicyError('release tag does not match the manifest version')
+    for name in ('run_id', 'attempt'):
+        if type(data[name]) is not int or data[name] < 1:
+            raise ReleasePolicyError('release metadata must name a positive ' + name)
+    if not isinstance(data['checks'], list):
+        raise ReleasePolicyError('release check evidence must be a list')
     return data
+
+
+def require_runtime(records: list, source_sha: str, digest: str, *, run_id=None, attempt=None) -> list:
+    """Validate concrete isolated installation outcomes, never caller success flags."""
+    expected = {(platform, host) for platform in ('linux', 'windows') for host in ('minimum', 'current')}
+    if not isinstance(records, list) or len(records) != len(expected):
+        raise ReleasePolicyError('isolated runtime verification requires all four platform/host jobs')
+    found = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise ReleasePolicyError('malformed runtime verification record')
+        pair = (record.get('platform'), record.get('host'))
+        if pair not in expected or pair in found:
+            raise ReleasePolicyError('runtime platform/host evidence is missing or duplicated')
+        found.add(pair)
+        if (record.get('source_sha') != source_sha or record.get('zip_sha256') != digest
+                or record.get('isolated') is not True):
+            raise ReleasePolicyError('runtime evidence is not bound to the isolated release archive')
+        ref = str(record.get('host_ref') or '')
+        if not re.fullmatch(r'(?:v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)|[0-9a-f]{40})', ref):
+            raise ReleasePolicyError('runtime host must be pinned to a stable tag or commit')
+        for name, required in (('run_id', run_id), ('attempt', attempt)):
+            value = record.get(name)
+            if type(value) is not int or value < 1 or (required is not None and value != required):
+                raise ReleasePolicyError('runtime evidence has a stale run or attempt')
+        commands = record.get('commands') or {}
+        for name in ('install', 'checkpoint', 'capture', 'report', 'check', 'upgrade'):
+            if type(commands.get(name)) is not int or commands[name] != 0:
+                raise ReleasePolicyError('runtime command did not succeed: ' + name)
+    return records
+
+
+def require_verification(record: dict, expected: dict, *, runtime: bool = True) -> dict:
+    if not isinstance(record, dict) or record.get('schema_version') != 1:
+        raise ReleasePolicyError('missing verified release record')
+    for name in ('repository', 'version', 'tag', 'source_sha', 'zip_sha256'):
+        if record.get(name) != expected.get(name):
+            raise ReleasePolicyError('verification does not match release ' + name)
+    if record.get('build_sha') != expected.get('source_sha'):
+        raise ReleasePolicyError('verification build does not match release source')
+    for name in ('provenance', 'packaging_verified', 'catalog_verified', 'checksums_verified'):
+        if record.get(name) is not True:
+            raise ReleasePolicyError('missing mandatory release verification: ' + name)
+    if runtime:
+        require_runtime(record.get('runtime'), expected['source_sha'], expected['zip_sha256'],
+                        run_id=expected.get('run_id'), attempt=expected.get('attempt'))
+        if record.get('install_verified') is not True or record.get('commands_verified') is not True:
+            raise ReleasePolicyError('missing isolated install/runtime verification')
+    return record

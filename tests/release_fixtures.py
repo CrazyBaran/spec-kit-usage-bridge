@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MIN_HOST = 'v1.0.12'
@@ -61,10 +62,16 @@ def _serve(directory: Path):
 
 
 def build_release_archive(tmp_path: Path) -> Path:
+    supplied = os.environ.get('UB_RELEASE_ARCHIVE')
+    if supplied:
+        archive = Path(supplied).resolve(strict=True)
+        assert archive.is_file()
+        return archive
     spec = importlib.util.spec_from_file_location('build_release_archive', ROOT / 'tools/build_release.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    archive, _catalog = module.build(ROOT, '0.2.1', tmp_path / 'dist', 'https://example.invalid')
+    version = yaml.safe_load((ROOT / 'extension.yml').read_text(encoding='utf-8-sig'))['extension']['version']
+    archive, _catalog = module.build(ROOT, version, tmp_path / 'dist', 'https://example.invalid')
     return archive
 
 

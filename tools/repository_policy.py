@@ -397,9 +397,8 @@ RELEASE_ENVIRONMENTS = ('release-publish', 'release-override', 'catalog-submit')
 TAG_RULESET_NAME = 'usage-bridge-tags'
 REVIEWED_ENVIRONMENTS = ('release-override', 'catalog-submit')
 IMMUTABLE_RELEASE_UI = (
-    'Enable immutable releases for CrazyBaran/spec-kit-usage-bridge in the repository settings UI. '
-    'GitHub does not expose a stable public REST field for that toggle. Re-run release verification '
-    'after it is enabled and confirm immutable_releases is true.'
+    'Enable immutable releases with PUT repos/CrazyBaran/spec-kit-usage-bridge/immutable-releases '
+    'or in repository settings, then verify the setting through its GET endpoint.'
 )
 
 
@@ -421,8 +420,10 @@ def release_settings_plan(existing: dict, release_app_id: int, reviewer_id: int)
     full_name = ((existing.get('repository') or {}).get('full_name')
                  or 'CrazyBaran/spec-kit-usage-bridge')
     base = f'repos/{full_name}'
-    owned_tags = next((item for item in existing.get('rulesets') or []
-                       if item.get('name') == TAG_RULESET_NAME), None)
+    owned = [item for item in existing.get('rulesets') or [] if item.get('name') == TAG_RULESET_NAME]
+    if len(owned) > 1:
+        raise RepositoryPolicyError(['duplicate owned tag rulesets; resolve them before applying'])
+    owned_tags = owned[0] if owned else None
     tag_payload = {
         'name': TAG_RULESET_NAME,
         'target': 'tag',
@@ -439,14 +440,39 @@ def release_settings_plan(existing: dict, release_app_id: int, reviewer_id: int)
         tag_op = {'method': 'PUT', 'path': f"{base}/rulesets/{owned_tags['id']}", 'payload': tag_payload}
     else:
         tag_op = {'method': 'POST', 'path': f'{base}/rulesets', 'payload': tag_payload}
-    operations = [tag_op]
+    operations = ([] if owned_tags and _normalize(owned_tags) == _normalize(tag_payload)
+                  else [tag_op])
     for name in RELEASE_ENVIRONMENTS:
+        payload = _environment_payload(name, reviewer_id)
+        current = (existing.get('environments') or {}).get(name)
+        if current is not None and _normalize_environment(current) == _normalize_environment(payload):
+            continue
         operations.append({
             'method': 'PUT',
             'path': f'{base}/environments/{name}',
-            'payload': _environment_payload(name, reviewer_id),
+            'payload': payload,
         })
+    if existing.get('immutable_releases') is not True:
+        operations.append({'method': 'PUT', 'path': f'{base}/immutable-releases', 'payload': {}})
     return operations
+
+
+def _normalize_environment(environment: dict) -> dict:
+    """Normalize REST read-back protection rules into the update request shape."""
+    rules = {rule['type']: rule for rule in environment.get('protection_rules') or []}
+    reviewers = rules.get('required_reviewers') or {}
+    normalized = {
+        'wait_timer': (rules.get('wait_timer') or {}).get('wait_timer', environment.get('wait_timer', 0)),
+        'prevent_self_review': reviewers.get('prevent_self_review', environment.get('prevent_self_review', False)),
+        'can_admins_bypass': environment.get('can_admins_bypass'),
+        'deployment_branch_policy': environment.get('deployment_branch_policy'),
+        'reviewers': sorted(
+            [(r.get('type'), (r.get('reviewer') or r).get('id'))
+             for r in reviewers.get('reviewers', environment.get('reviewers') or [])], key=str),
+    }
+    normalized['custom_rules'] = sorted(rule['type'] for rule in environment.get('protection_rules') or []
+                                        if rule['type'] not in ('wait_timer', 'required_reviewers', 'branch_policy'))
+    return normalized
 
 
 def verify_release_settings(observed: dict, expected: dict) -> list[str]:
@@ -457,15 +483,17 @@ def verify_release_settings(observed: dict, expected: dict) -> list[str]:
     environments = observed.get('environments') or {}
     rulesets = observed.get('rulesets') or []
     for path, payload in expected.items():
+        if path.endswith('/immutable-releases'):
+            continue
         if path.endswith('/rulesets') or '/rulesets/' in path:
-            found = next((item for item in rulesets if item.get('name') == payload.get('name')), None)
-            if found is None or found.get('bypass_actors') != payload.get('bypass_actors'):
-                problems.append(f'tag ruleset at {path} does not match the release app bypass')
+            found = [item for item in rulesets if item.get('name') == payload.get('name')]
+            if len(found) != 1 or _normalize(found[0]) != _normalize(payload):
+                problems.append(f'tag ruleset at {path} does not match the release authority policy')
             continue
         name = path.rsplit('/', 1)[-1]
         current = environments.get(name) or {}
-        if current.get('reviewers') != payload.get('reviewers'):
-            problems.append(f'environment {name} reviewers do not match')
-        if current.get('can_admins_bypass') is not False:
-            problems.append(f'environment {name} allows admin bypass')
+        have, want = _normalize_environment(current), _normalize_environment(payload)
+        for field, value in want.items():
+            if have.get(field) != value:
+                problems.append(f'environment {name} {field} does not match')
     return problems

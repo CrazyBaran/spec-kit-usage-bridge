@@ -12,116 +12,154 @@ on:
         required: true
         type: string
       real_project:
-        required: false
         type: string
         default: ''
       documentation_review:
-        required: false
         type: string
         default: ''
       security_review:
-        required: false
+        type: string
+        default: ''
+      verified_artifact:
         type: string
         default: ''
   workflow_dispatch:
     inputs:
       tag:
-        description: Verified tag
         required: true
         type: string
       source_sha:
-        description: Exact release commit
         required: true
         type: string
       digest:
-        description: SHA-256 of the verified ZIP
         required: true
         type: string
       real_project:
-        description: Real-project test description
-        required: false
         type: string
         default: ''
       documentation_review:
-        description: Set to true only after a documentation review
-        required: false
         type: string
         default: ''
       security_review:
-        description: Security-review evidence
-        required: false
         type: string
         default: ''
   release:
     types: [published]
 permissions:
   contents: read
+  actions: read
+  attestations: read
 jobs:
+  verify:
+    if: inputs.verified_artifact == '' && github.repository == 'CrazyBaran/spec-kit-usage-bridge' && (github.ref == 'refs/heads/main' || github.event_name == 'release')
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      tag: ${{ inputs.tag || github.event.release.tag_name }}
   detect:
-    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge'
+    needs: verify
+    if: always() && github.repository == 'CrazyBaran/spec-kit-usage-bridge' && (needs.verify.result == 'success' || (needs.verify.result == 'skipped' && inputs.verified_artifact != ''))
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'release' && github.sha || inputs.source_sha }}
+          ref: refs/heads/main
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Flag a manual stable publication that has no candidate
-        if: github.event_name == 'release'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.verified_artifact || format('verified-release-{0}', github.run_attempt) }}
+          path: verified
+      - name: Validate follow-through identity and detect manual publication
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          python tools/release_cli.py promotion-context --version "$version" --candidate-tag "" --source-sha "$SOURCE_SHA" --output follow-through.json
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPECTED_DIGEST: ${{ inputs.digest }}
+        run: python tools/release_cli.py check-verification --verification verified/verification.json --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --digest "$EXPECTED_DIGEST" --output follow-through.json
   mergeback:
     needs: detect
-    if: github.event_name != 'release' && github.repository == 'CrazyBaran/spec-kit-usage-bridge'
+    if: github.event_name != 'release' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     environment: release-publish
-    permissions:
-      contents: write
-      pull-requests: write
+    concurrency:
+      group: usage-bridge-mergeback
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_sha }}
+          ref: refs/heads/main
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Enable merge-back without executing release bytes
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.verified_artifact || format('verified-release-{0}', github.run_attempt) }}
+          path: verified
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Enable protected merge-back without executing release code
         env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           version="${RELEASE_TAG#v}"
-          python tools/release_cli.py mergeback --version "$version" --source-sha "$SOURCE_SHA" --verification verification.json --output mergeback.json
+          python tools/release_cli.py mergeback --version "$version" --source-sha "$SOURCE_SHA" --verification verified/verification.json --output mergeback.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mergeback-${{ github.run_attempt }}
+          path: mergeback.json
+          if-no-files-found: error
+          retention-days: 14
   submit:
     needs: detect
-    if: github.event_name != 'release' && github.repository == 'CrazyBaran/spec-kit-usage-bridge' && inputs.real_project != '' && inputs.documentation_review == 'true' && inputs.security_review != ''
+    if: github.event_name != 'release' && github.ref == 'refs/heads/main' && inputs.real_project != '' && inputs.documentation_review == 'true' && inputs.security_review != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: catalog-submit
-    permissions:
-      contents: read
+    concurrency:
+      group: usage-bridge-catalog-submission
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          ref: ${{ inputs.source_sha }}
+          ref: refs/heads/main
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.verified_artifact || format('verified-release-{0}', github.run_attempt) }}
+          path: verified
+      - name: Bind maintainer attestations to the verified version and digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REAL_PROJECT: ${{ inputs.real_project }}
+          DOCUMENTATION_REVIEW: ${{ inputs.documentation_review }}
+          SECURITY_REVIEW: ${{ inputs.security_review }}
+        run: python tools/release_cli.py submission-evidence --verification verified/verification.json --output submission-evidence.json
       - name: Submit through the official catalog issue
         env:
+          GH_TOKEN: ${{ secrets.SPEC_KIT_SUBMISSION_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag }}
-          SPEC_KIT_SUBMISSION_TOKEN: ${{ secrets.SPEC_KIT_SUBMISSION_TOKEN }}
-        run: python tools/release_cli.py submit --tag "$RELEASE_TAG" --verification verification.json --evidence submission-evidence.json --manifest extension.json --output submission.json
+        run: python tools/release_cli.py submit --tag "$RELEASE_TAG" --verification verified/verification.json --evidence submission-evidence.json --manifest verified/extension.json --output submission.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: submission-${{ github.run_attempt }}
+          path: submission.json
+          if-no-files-found: error
+          retention-days: 14

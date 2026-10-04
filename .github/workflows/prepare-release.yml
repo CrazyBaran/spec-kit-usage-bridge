@@ -7,34 +7,45 @@ on:
         required: true
         type: string
       main_sha:
-        description: Fresh main SHA the branch is cut from
+        description: Fresh protected main SHA
         required: true
         type: string
 permissions:
   contents: read
+concurrency:
+  group: usage-bridge-release
+  cancel-in-progress: false
 jobs:
   prepare:
     if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: release-publish
-    timeout-minutes: 10
-    concurrency:
-      group: usage-bridge-release
-      cancel-in-progress: false
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          ref: ${{ inputs.main_sha }}
+          ref: refs/heads/main
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
       - run: python -m pip install --require-hashes -r requirements-dev.lock
-      - name: Prepare the release branch
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Prepare the remote release branch with trusted tooling
         env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           RELEASE_VERSION: ${{ inputs.version }}
           MAIN_SHA: ${{ inputs.main_sha }}
         run: python tools/release_cli.py prepare --version "$RELEASE_VERSION" --main-sha "$MAIN_SHA" --output release-prepare.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-prepare-${{ github.run_attempt }}
+          path: release-prepare.json
+          if-no-files-found: error
+          retention-days: 14

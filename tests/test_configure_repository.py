@@ -296,3 +296,108 @@ def test_protection_403_is_a_blocker_without_writes(fake_api):
     assert report['errors']
     assert writes(fake_api) == []
     assert report['verified'] is False
+
+
+class ReleaseAPI(FakeAPI):
+    def __init__(self):
+        super().__init__()
+        self.app_id = 4242
+        self.installation_id = 9000
+        self.environments = {}
+        self.immutable = False
+        self.ignore_writes = False
+
+    def pages(self, path):
+        if path == 'user/installations':
+            self._record('GET', path)
+            return [{'id': self.installation_id, 'app_id': self.app_id, 'suspended_at': None}]
+        if path == f'user/installations/{self.installation_id}/repositories':
+            self._record('GET', path)
+            return [{'full_name': REPO}]
+        return super().pages(path)
+
+    def request(self, method, path, payload=None):
+        if path == f'{BASE}/immutable-releases':
+            self._record(method, path, payload)
+            if method == 'PUT':
+                if not self.ignore_writes:
+                    self.immutable = True
+                return None
+            if not self.immutable:
+                raise GitHubAPIError('disabled', 404)
+            return {'enabled': True, 'enforced_by_owner': False}
+        if '/environments/' in path:
+            self._record(method, path, payload)
+            name = path.rsplit('/', 1)[-1]
+            if method == 'PUT':
+                if not self.ignore_writes:
+                    self.environments[name] = {
+                        'name': name, 'can_admins_bypass': payload['can_admins_bypass'],
+                        'deployment_branch_policy': payload['deployment_branch_policy'],
+                        'protection_rules': [
+                            {'type': 'wait_timer', 'wait_timer': payload['wait_timer']},
+                            {'type': 'required_reviewers', 'prevent_self_review': payload['prevent_self_review'],
+                             'reviewers': [{'type': r['type'], 'reviewer': {'id': r['id'], 'login': 'owner'}}
+                                           for r in payload['reviewers']]},
+                        ],
+                    }
+                return self.environments.get(name, {})
+            if name not in self.environments:
+                raise GitHubAPIError('missing', 404)
+            return copy.deepcopy(self.environments[name])
+        return super().request(method, path, payload)
+
+
+def test_release_apply_discovers_app_id_and_verifies_actual_readback():
+    api = ReleaseAPI()
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    assert report['errors'] == []
+    assert report['verified'] is True
+    tags = [r for r in api.rulesets.values() if r['name'] == 'usage-bridge-tags']
+    assert tags[0]['bypass_actors'][0]['actor_id'] == 4242
+    assert api.immutable is True
+    assert any(c.path == 'user/installations/9000/repositories' for c in api.calls)
+
+
+def test_release_reapply_is_idempotent_without_duplicate_rulesets():
+    api = ReleaseAPI()
+    assert configure_repository.configure_release(api, REPO, 4242, 777, True)['verified']
+    api.calls.clear()
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    assert report['verified'] is True
+    assert report['planned'] == []
+    assert writes(api) == []
+    assert len(api.rulesets) == 1
+
+
+def test_release_does_not_confuse_installation_id_with_app_id():
+    api = ReleaseAPI()
+    report = configure_repository.configure_release(api, REPO, 9000, 777, True)
+    assert report['errors']
+    assert writes(api) == []
+
+
+def test_release_readback_drift_fails_apply_cli(tmp_path):
+    api = ReleaseAPI()
+    api.ignore_writes = True
+    assert configure_repository.main([
+        'release', '--repo', REPO, '--release-app-id', '4242', '--reviewer-id', '777',
+        '--apply', '--report-dir', str(tmp_path)], api=api) == 1
+
+
+def test_release_duplicate_owned_tag_rulesets_fail_without_mutation():
+    api = ReleaseAPI()
+    for identity in (1, 2):
+        api.rulesets[identity] = {'id': identity, 'name': 'usage-bridge-tags', 'rules': []}
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    assert report['errors']
+    assert writes(api) == []
+
+
+def test_release_verification_catches_disabled_or_weakened_tag_rules():
+    api = ReleaseAPI()
+    assert configure_repository.configure_release(api, REPO, 4242, 777, True)['verified']
+    next(iter(api.rulesets.values()))['enforcement'] = 'disabled'
+    report = configure_repository.configure_release(api, REPO, 4242, 777, False)
+    assert report['verified'] is False
+    assert any('tag ruleset' in problem for problem in report['problems'])

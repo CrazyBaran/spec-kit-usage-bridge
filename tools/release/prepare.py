@@ -28,10 +28,44 @@ def prepare_release(api: GitHubAPI, repo: str, version: str, main_sha: str, *,
         return {'branch': branch, 'pull_request': None, 'source_sha': main_sha, 'reused': False}
     if checkout is None:
         raise ReleasePolicyError('a checkout is required to create a release branch')
-    source_sha = _commit_release_tree(checkout, version, main_sha)
+    _require_fresh_main(api, repo, main_sha)
+    if _git(checkout, 'rev-parse', 'HEAD') != main_sha:
+        raise ReleasePolicyError('trusted checkout must match the fresh protected main SHA')
+    if _git(checkout, 'status', '--porcelain', '--untracked-files=no'):
+        raise ReleasePolicyError('trusted checkout must be clean before release preparation')
+    _commit_release_tree(checkout, version, main_sha)
+    source_sha = _upload_release_tree(api, repo, checkout, version, main_sha)
+    _require_fresh_main(api, repo, main_sha)
     api.request('POST', f'/repos/{repo}/git/refs', {'ref': f'refs/heads/{branch}', 'sha': source_sha})
     url = _ensure_draft(api, repo, branch, version)
     return {'branch': branch, 'pull_request': url, 'source_sha': source_sha, 'reused': False}
+
+
+def _require_fresh_main(api, repo: str, main_sha: str) -> None:
+    if not re.fullmatch(r'[0-9a-f]{40}', main_sha):
+        raise ReleasePolicyError('main SHA must be a full commit SHA')
+    current = api.request('GET', f'/repos/{repo}/git/ref/heads/main')
+    if (current.get('object') or {}).get('sha') != main_sha:
+        raise ReleasePolicyError('requested main SHA does not match fresh protected main')
+
+
+def _upload_release_tree(api, repo: str, checkout: Path, version: str, main_sha: str) -> str:
+    """Create remote objects before referencing them; never updates an existing ref."""
+    base = f'/repos/{repo}/git'
+    parent = api.request('GET', f'{base}/commits/{main_sha}')
+    tree = api.request('POST', f'{base}/trees', {
+        'base_tree': parent['tree']['sha'],
+        'tree': [{'path': name, 'mode': '100644', 'type': 'blob',
+                  'content': (checkout / name).read_text(encoding='utf-8')}
+                 for name in ('extension.yml', 'CHANGELOG.md')],
+    })
+    commit = api.request('POST', f'{base}/commits', {
+        'message': f'chore: prepare release {version}',
+        'tree': tree['sha'], 'parents': [main_sha],
+        'author': {'name': _BOT_NAME, 'email': _BOT_EMAIL},
+        'committer': {'name': _BOT_NAME, 'email': _BOT_EMAIL},
+    })
+    return str(commit['sha'])
 
 
 def _require_newer_than_stable(api: GitHubAPI, repo: str, version: str) -> None:

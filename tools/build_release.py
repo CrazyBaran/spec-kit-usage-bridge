@@ -7,13 +7,14 @@ from pathlib import Path
 
 import yaml
 
-from release.artifacts import runtime_members, write_catalog, write_deterministic_archive
+from release.artifacts import runtime_members, safe_source, write_catalog, write_deterministic_archive
 
 
 def release_notes(repo: Path, version: str) -> str:
     path = repo / 'CHANGELOG.md'
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return ''
+    path = safe_source(repo, 'CHANGELOG.md')
     text = path.read_text(encoding='utf-8-sig')
     match = re.search(r'^##\s+\[?' + re.escape(version) + r'\]?(?=\s|$)[^\n]*\n', text, re.M)
     if not match:
@@ -24,10 +25,10 @@ def release_notes(repo: Path, version: str) -> str:
 
 def build(repo: Path, version: str, out_dir: Path, base_url: str, *,
           release_tag: str | None = None) -> tuple[Path, Path]:
+    members = runtime_members(repo)
     manifest = yaml.safe_load((repo / 'extension.yml').read_text(encoding='utf-8-sig'))
     if version != manifest['extension']['version']:
         raise SystemExit('Release version must match extension.yml')
-    members = runtime_members(repo)
     out_dir.mkdir(parents=True, exist_ok=True)
     archive = out_dir / ('usage-bridge-v' + version + '.zip')
     write_deterministic_archive(repo, members, archive)

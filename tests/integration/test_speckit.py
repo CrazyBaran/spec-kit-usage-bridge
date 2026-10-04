@@ -1,7 +1,6 @@
 """Exercise installation and runtime dispatch using the pinned real Spec Kit CLI."""
 import functools
 import http.server
-import importlib.util
 import json
 import os
 import shlex
@@ -16,6 +15,7 @@ import pytest
 import yaml
 
 from builders import SessionBuilder, stop_payload
+from release_fixtures import build_release_archive
 
 ROOT = Path(__file__).resolve().parents[2]
 SPECIFY = ['uvx', '--from',
@@ -124,10 +124,7 @@ def serve(directory):
 
 
 def test_install_from_release_zip(tmp_path):
-    spec = importlib.util.spec_from_file_location('build_release', ROOT / 'tools/build_release.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    archive, _ = module.build(ROOT, '0.2.1', tmp_path / 'dist', 'https://example.invalid')
+    archive = build_release_archive(tmp_path)
     with serve(archive.parent) as base:
         proj = init(tmp_path)
         run(SPECIFY + ['extension', 'add', 'usage-bridge', '--from', base + '/' + archive.name], cwd=proj, input='y\n')

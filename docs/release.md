@@ -89,9 +89,10 @@ Preparing this branch does not publish a tag or release.
 ## Automated release authority
 
 Publication uses a GitHub App installed only in `CrazyBaran/spec-kit-usage-bridge`.
-The App needs contents and pull-request write, plus checks, actions, and
-deployments read. `RELEASE_APP_PRIVATE_KEY` is an environment secret on
-`release-publish` and `release-override` only. Build and test jobs do not receive
+The App needs contents and pull-request write, plus checks, actions, deployments,
+attestations, and administration read. Set the repository variable `RELEASE_APP_ID`.
+`RELEASE_APP_PRIVATE_KEY` is an environment secret on
+`release-publish` only. Build and test jobs do not receive
 it. There is no personal-token fallback. If the App is not installed, packaging
 can still run locally and publishing stays blocked.
 
@@ -107,11 +108,15 @@ publishing token.
 
 Tag creation, update, and deletion for `v*` is limited to the release App through
 the `usage-bridge-tags` ruleset. The App cannot bypass `usage-bridge-main`.
-Immutable releases are turned on in the repository settings UI. The public REST
-API does not expose that toggle, so verification reports the gap instead of
-claiming a PATCH succeeded. A retry reconciles the existing tag and assets. The
+Immutable releases are enabled and checked through the repository's
+`immutable-releases` REST endpoint. A retry reconciles the existing tag and assets. The
 publisher refuses to replace an asset whose digest differs and does not create a
 second release for the same tag.
+
+A completed immutable release is reused only after downloading and validating its
+original metadata and assets against the requested source and ZIP digest. For an
+interrupted draft, resume with the original evidence and asset bundle. A conflicting
+rebuild must use a new candidate/version; uploaded assets are never overwritten.
 
 Repository admins can still change rules or publish by hand. A manually published
 stable release is detected and flagged. Follow-through does not submit it and
@@ -123,7 +128,7 @@ does not merge it.
    App opens `release/X.Y.Z` and a draft pull request. Re-running reuses that
    branch. The job does not create a tag or a release.
 2. Dispatch Release with the same version and the exact release commit. CI runs
-   on that SHA, then the install matrix (Linux and Windows, minimum and current
+   on that SHA alongside the install matrix (Linux and Windows, minimum and current
    Spec Kit host, Python 3.12). Both host channels currently resolve to the
    reviewed tag `v1.0.12`. Publication calls `python tools/release_cli.py publish`
    and does not call `gh release create`.
@@ -131,9 +136,10 @@ does not merge it.
    and the same source SHA. A missing, draft, or stale candidate is refused. A
    newer fix needs a new candidate before stable promotion.
 
-Mutation jobs share the concurrency group `usage-bridge-release` with
+Preparation and publication runs share the concurrency group `usage-bridge-release` with
 `cancel-in-progress: false`. Actions concurrency has no `queue: max` key, so
-that key is not set. Job budgets are 10 minutes for prepare, 20 minutes for
+that key is not set. Merge-back and catalog mutations have separate serialized groups.
+Job budgets are 15 minutes for prepare, 20 minutes for
 lint, policy, and publication, 30 minutes for the unit matrix, and 45 minutes
 for the install matrix.
 
@@ -147,6 +153,29 @@ to that attempt and the artifact digest. A JSON field `approved=true` is not
 approval. Pending, missing, skipped, and cancelled checks are never waived.
 Packaging, digest, source SHA, candidate existence, and install evidence are
 never waived.
+
+Supply `waived_checks` as a JSON array of exact failed check names, for example
+`["lint"]`, along with `override_reason`. Installation runs even when quality CI
+fails. Publication waits for the separate approval job and then re-reads this
+run attempt's job results and environment approval history.
+
+### Evidence and credential boundaries
+
+Candidate and stable dispatches share `release-pipeline.yml`. Tools and dependencies
+come from protected `main`; the release checkout is read only as build input.
+The build signs a custom attestation binding the ZIP digest, source commit, run ID,
+and attempt. Credential-free installation jobs consume those exact bytes. The
+publisher collects actual Actions results, verifies provenance, and rechecks remote
+branch/tag state before writes. It publishes the ZIP, `catalog.json`, `SHA256SUMS`,
+and `release-metadata.json`.
+
+`verify-release.yml` downloads those four assets, verifies their digests, contents,
+and signed provenance, then exercises installation and runtime commands again on
+Linux and Windows. Only the completed verification artifact feeds merge-back and
+submission. Missing maintainer attestations leave submission pending; dispatch
+Release follow-through from `main` with the stable tag, exact SHA/digest and human
+review evidence to retry it. A manual release event runs detection and verification
+without enabling merge-back or submission.
 
 ### Catalog issue
 

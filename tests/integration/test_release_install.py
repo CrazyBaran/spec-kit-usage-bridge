@@ -39,6 +39,7 @@ def test_installed_runtime_without_repo_pythonpath(tmp_path, release_archive):
     transcript = session.write()
     env = {key: value for key, value in os.environ.items() if key != 'PYTHONPATH'}
     env['PYTHONPATH'] = ''
+    env['PYTHONIOENCODING'] = 'utf-8'
     root = str(Path(__file__).resolve().parents[2])
     installed = project / '.specify/extensions/usage-bridge/scripts/python'
     for name in ('checkpoint.py', 'capture.py', 'report.py', 'check.py'):
@@ -54,6 +55,18 @@ def test_installed_runtime_without_repo_pythonpath(tmp_path, release_archive):
     report = feature / 'token-usage.md'
     assert report.is_file()
     assert 'specify' in report.read_text(encoding='utf-8').lower()
+    checkpoint = subprocess.run(
+        [sys.executable, str(installed / 'checkpoint.py'), '--runtime', 'claude', '--session-id', 's1',
+         '--feature', 'specs/001-login', '--phase', 'specify', '--latest', '--apply'],
+        cwd=project, capture_output=True, text=True, encoding='utf-8', timeout=60, env=env,
+    )
+    assert checkpoint.returncode == 0, checkpoint.stdout + checkpoint.stderr
+    assert 'binding' in checkpoint.stdout
+    rendered = subprocess.run(
+        [sys.executable, str(installed / 'report.py')], cwd=project, capture_output=True, text=True,
+        encoding='utf-8', timeout=60, env=env,
+    )
+    assert rendered.returncode == 0, rendered.stdout + rendered.stderr
     check = subprocess.run(
         [sys.executable, str(installed / 'check.py')], cwd=project, capture_output=True, text=True,
         encoding='utf-8', timeout=30, env=env,
@@ -62,21 +75,23 @@ def test_installed_runtime_without_repo_pythonpath(tmp_path, release_archive):
 
 
 def test_upgrade_preserves_config_and_reports(tmp_path, release_archive):
-    project = install_archive_project(tmp_path, release_archive, 'v1.0.12')
+    project = install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'))
     feature = project / 'specs/001-login'
     feature.mkdir(parents=True)
     report = feature / 'token-usage.md'
     report.write_text('kept history\n', encoding='utf-8')
     local = project / '.specify/extensions/usage-bridge/usage-bridge-config.local.yml'
     local.write_text('author:\n  alias: kept-author\n', encoding='utf-8')
-    install_archive_project(tmp_path, release_archive, 'v1.0.12', project=project, force=True)
+    install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'),
+                            project=project, force=True)
     assert report.read_text(encoding='utf-8') == 'kept history\n'
     assert 'kept-author' in local.read_text(encoding='utf-8')
 
 
 @pytest.mark.parametrize('integration', ['claude', 'codex', 'cursor-agent'])
 def test_archive_install_renders_commands(tmp_path, release_archive, integration):
-    project = install_archive_project(tmp_path, release_archive, 'v1.0.12', integration=integration)
+    project = install_archive_project(tmp_path, release_archive, os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'),
+                                      integration=integration)
     folder = {'claude': '.claude', 'codex': '.agents', 'cursor-agent': '.cursor'}[integration]
     skill = project / folder / 'skills/speckit-usage-bridge-report/SKILL.md'
     assert skill.is_file()

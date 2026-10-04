@@ -12,7 +12,8 @@ SHA = 'a' * 40
 
 
 class FakeAPI:
-    def __init__(self):
+    def __init__(self, main_sha=SHA):
+        self.main_sha = main_sha
         self.calls = []
         self.created_pull_requests = []
         self.created_releases = []
@@ -21,15 +22,31 @@ class FakeAPI:
         self.pulls = []
         self.refs = {}
         self.fail_next_pr = False
+        self.remote_objects = {}
 
     def request(self, method, path, payload=None):
         self.calls.append(type('Call', (), {'method': method, 'path': path, 'payload': payload})())
+        if method == 'GET' and path.endswith('/git/ref/heads/main'):
+            return {'object': {'type': 'commit', 'sha': self.main_sha}}
+        if method == 'GET' and '/git/commits/' in path:
+            return {'tree': {'sha': 'base-tree'}}
+        if method == 'POST' and path.endswith('/git/trees'):
+            sha = 'remote-tree'
+            self.remote_objects[sha] = payload
+            return {'sha': sha}
+        if method == 'POST' and path.endswith('/git/commits'):
+            assert payload['tree'] in self.remote_objects
+            sha = 'remote-commit'
+            self.remote_objects[sha] = payload
+            return {'sha': sha}
         if method == 'GET' and '/git/ref/heads/release/' in path:
             name = path.rsplit('/', 1)[-1]
             if name not in self.refs:
                 raise GitHubAPIError('missing ref', status=404)
             return {'object': {'sha': self.refs[name]}}
         if method == 'POST' and path.endswith('/git/refs'):
+            if payload['sha'] not in self.remote_objects:
+                raise GitHubAPIError('Git object does not exist remotely', status=422)
             ref = payload['ref'].rsplit('/', 1)[-1]
             if ref in self.refs:
                 raise GitHubAPIError('ref exists', status=422)
@@ -81,8 +98,10 @@ def _checkout(tmp_path: Path) -> Path:
 
 
 def test_prepare_never_publishes_release(tmp_path):
-    api = FakeAPI()
-    result = prepare_release(api, REPO, '0.2.2', _git(_checkout(tmp_path), 'rev-parse', 'HEAD'),
+    checkout = _checkout(tmp_path)
+    sha = _git(checkout, 'rev-parse', 'HEAD')
+    api = FakeAPI(sha)
+    result = prepare_release(api, REPO, '0.2.2', sha,
                              checkout=tmp_path / 'src')
     assert result['branch'] == 'release/0.2.2'
     assert api.created_pull_requests[0]['draft'] is True
@@ -92,12 +111,17 @@ def test_prepare_never_publishes_release(tmp_path):
     text = (tmp_path / 'src' / 'extension.yml').read_text(encoding='utf-8')
     assert '0.2.2' in text
     assert '## [0.2.2]' in (tmp_path / 'src' / 'CHANGELOG.md').read_text(encoding='utf-8')
+    assert result['source_sha'] == 'remote-commit'
+    assert api.remote_objects['remote-commit']['parents'] == [
+        _git(tmp_path / 'src', 'rev-parse', 'main')]
+    assert {entry['path'] for entry in api.remote_objects['remote-tree']['tree']} == {
+        'extension.yml', 'CHANGELOG.md'}
 
 
 def test_prepare_retry_reuses_branch_and_recovers_pr(tmp_path):
     checkout = _checkout(tmp_path)
     sha = _git(checkout, 'rev-parse', 'HEAD')
-    api = FakeAPI()
+    api = FakeAPI(sha)
     api.fail_next_pr = True
     with pytest.raises(GitHubAPIError):
         prepare_release(api, REPO, '0.2.2', sha, checkout=checkout)
@@ -125,7 +149,7 @@ def test_prepare_blocks_older_than_published_stable(tmp_path):
 def test_prepare_does_not_overwrite_maintainer_fixes(tmp_path):
     checkout = _checkout(tmp_path)
     sha = _git(checkout, 'rev-parse', 'HEAD')
-    api = FakeAPI()
+    api = FakeAPI(sha)
     prepare_release(api, REPO, '0.2.2', sha, checkout=checkout)
     _git(checkout, 'checkout', 'release/0.2.2')
     (checkout / 'extension.yml').write_text('extension:\n  id: usage-bridge\n  version: "0.2.2"\n# maintainer\n',
@@ -140,3 +164,45 @@ def test_prepare_does_not_overwrite_maintainer_fixes(tmp_path):
     assert api.refs['0.2.2'] == fixed
     _git(checkout, 'checkout', 'release/0.2.2')
     assert '# maintainer' in (checkout / 'extension.yml').read_text(encoding='utf-8')
+
+
+def test_prepare_rejects_a_source_other_than_fresh_remote_main(tmp_path):
+    checkout = _checkout(tmp_path)
+    main = _git(checkout, 'rev-parse', 'HEAD')
+    _git(checkout, 'checkout', '-b', 'untrusted')
+    (checkout / 'extension.yml').write_text('extension:\n  version: "9.9.9"\n', encoding='utf-8')
+    _git(checkout, 'commit', '-am', 'untrusted source')
+    untrusted = _git(checkout, 'rev-parse', 'HEAD')
+    _git(checkout, 'checkout', 'main')
+    api = FakeAPI(main)
+    with pytest.raises(ReleasePolicyError, match='main'):
+        prepare_release(api, REPO, '0.2.2', untrusted, checkout=checkout)
+    assert _git(checkout, 'rev-parse', 'HEAD') == main
+    assert not any(call.method != 'GET' for call in api.calls)
+
+
+def test_prepare_rejects_checkout_other_than_fresh_main(tmp_path):
+    checkout = _checkout(tmp_path)
+    main = _git(checkout, 'rev-parse', 'HEAD')
+    _git(checkout, 'checkout', '-b', 'other')
+    (checkout / 'extra').write_text('unrelated')
+    _git(checkout, 'add', 'extra')
+    _git(checkout, 'commit', '-m', 'other checkout')
+    other = _git(checkout, 'rev-parse', 'HEAD')
+    api = FakeAPI(main)
+    with pytest.raises(ReleasePolicyError, match='checkout'):
+        prepare_release(api, REPO, '0.2.2', main, checkout=checkout)
+    assert _git(checkout, 'rev-parse', 'HEAD') == other
+    assert not any(call.method != 'GET' for call in api.calls)
+
+
+def test_prepare_rejects_staged_changes_before_mutating_checkout(tmp_path):
+    checkout = _checkout(tmp_path)
+    main = _git(checkout, 'rev-parse', 'HEAD')
+    (checkout / 'extra').write_text('human work')
+    _git(checkout, 'add', 'extra')
+    api = FakeAPI(main)
+    with pytest.raises(ReleasePolicyError, match='clean'):
+        prepare_release(api, REPO, '0.2.2', main, checkout=checkout)
+    assert _git(checkout, 'rev-parse', 'HEAD') == main
+    assert _git(checkout, 'status', '--porcelain') == 'A  extra'

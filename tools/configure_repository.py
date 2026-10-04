@@ -15,6 +15,7 @@ from pathlib import Path
 
 from github_api import GitHubAPI, GitHubAPIError
 from repository_policy import (
+    RELEASE_ENVIRONMENTS,
     REQUIRED_CONTEXTS,
     RULESET_NAME,
     RepositoryPolicyError,
@@ -176,34 +177,61 @@ def configure_release(api: GitHubAPI, repository: str, release_app_id: int, revi
                       apply: bool) -> dict:
     """Plan release authority. Mutation stays behind ``apply`` and this repository only."""
     report = {'repository': repository, 'mode': 'apply' if apply else 'dry-run',
-              'planned': [], 'applied': [], 'verified': False, 'errors': []}
+              'planned': [], 'applied': [], 'verified': False, 'errors': [], 'problems': []}
     if repository != ALLOWED_REPOSITORY:
         report['errors'].append('refusing to configure ' + repository)
         return report
+    base = f'repos/{repository}'
     try:
-        installations = api.pages(f'repos/{repository}/installations')
-    except GitHubAPIError as error:
-        report['errors'].append(str(error))
-        return report
-    if not any(item.get('id') == release_app_id for item in installations):
-        report['errors'].append(f'release app {release_app_id} is not installed')
-        return report
-    existing = {'repository': {'full_name': repository}, 'rulesets': []}
-    report['planned'] = release_settings_plan(existing, release_app_id, reviewer_id)
-    if not apply:
-        return report
-    for operation in report['planned']:
-        try:
-            api.request(operation['method'], operation['path'], operation['payload'])
-        except GitHubAPIError as error:
-            report['errors'].append(str(error))
+        repo = api.request('GET', base)
+        if not (repo.get('permissions') or {}).get('admin'):
+            report['errors'].append('admin authority on the repository is required')
             return report
-        report['applied'].append(operation['path'])
-    expected = {op['path']: op['payload'] for op in report['planned']}
-    report['problems'] = verify_release_settings(
-        {'environments': {}, 'rulesets': [], 'immutable_releases': False}, expected)
-    report['verified'] = not report['problems'] and not report['errors']
+        if release_app_id <= 0 or reviewer_id <= 0:
+            report['errors'].append('release app and reviewer IDs must be positive')
+            return report
+        installations = [item for item in api.pages('user/installations')
+                         if item.get('app_id') == release_app_id and not item.get('suspended_at')]
+        accessible = any(any(r.get('full_name', '').lower() == repository.lower()
+                             for r in api.pages(f'user/installations/{item["id"]}/repositories'))
+                         for item in installations)
+        if not accessible:
+            report['errors'].append(f'release app {release_app_id} is not installed with access to {repository}')
+            return report
+        existing = _observe_release(api, base, repo)
+        report['planned'] = release_settings_plan(existing, release_app_id, reviewer_id)
+        expected = {op['path']: op['payload'] for op in release_settings_plan(
+            {'repository': repo}, release_app_id, reviewer_id)}
+        if apply:
+            for operation in report['planned']:
+                api.request(operation['method'], operation['path'], operation['payload'])
+                report['applied'].append(operation['path'])
+            existing = _observe_release(api, base, repo)
+        report['problems'] = verify_release_settings(existing, expected)
+        report['verified'] = not report['problems']
+    except (GitHubAPIError, RepositoryPolicyError) as error:
+        report['errors'].append(str(error))
     return report
+
+
+def _observe_release(api, base: str, repository: dict) -> dict:
+    rulesets = [api.request('GET', f'{base}/rulesets/{item["id"]}')
+                for item in api.pages(f'{base}/rulesets')]
+    environments = {}
+    for name in RELEASE_ENVIRONMENTS:
+        try:
+            environments[name] = api.request('GET', f'{base}/environments/{name}')
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
+    try:
+        immutable = api.request('GET', f'{base}/immutable-releases').get('enabled') is True
+    except GitHubAPIError as error:
+        if error.status != 404:
+            raise
+        immutable = False
+    return {'repository': repository, 'rulesets': rulesets, 'environments': environments,
+            'immutable_releases': immutable}
 
 
 def main(argv=None, api=None) -> int:
@@ -226,7 +254,7 @@ def main(argv=None, api=None) -> int:
         report = configure_release(client, args.repo, args.release_app_id, args.reviewer_id, args.apply)
         print(json.dumps(report, indent=2))
         _write_report(report, args.report_dir, 'release')
-        return 1 if report['errors'] else 0
+        return 1 if report['errors'] or (args.apply and not report['verified']) else 0
 
     report = configure_main(client, args.repo, args.apply)
     text = json.dumps(report, indent=2)

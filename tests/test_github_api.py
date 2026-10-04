@@ -1,9 +1,12 @@
 """GitHub API transport: argv shape, errors, retries, pagination, redaction."""
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import subprocess
+import zipfile
 
 import pytest
 
@@ -209,3 +212,122 @@ def test_diagnostics_are_bounded():
     with pytest.raises(GitHubAPIError) as caught:
         make(runner).request('POST', PATH, {})
     assert len(caught.value.stderr) <= 2000
+
+
+def test_upload_sends_exact_binary_to_release_upload_host(tmp_path):
+    asset = tmp_path / 'archive.zip'
+    asset.write_bytes(b'PK\x00\xff\r\n')
+    calls = []
+
+    def runner(argv, timeout):
+        calls.append(argv)
+        assert open(argv[argv.index('--input') + 1], 'rb').read() == b'PK\x00\xff\r\n'
+        return done('{"id": 8, "name": "archive zip.zip"}')
+
+    result = make(runner).upload_asset(
+        'https://uploads.github.com/repos/a/b/releases/4/assets{?name,label}',
+        'archive zip.zip', asset)
+    assert result['id'] == 8
+    assert 'https://uploads.github.com/repos/a/b/releases/4/assets?name=archive%20zip.zip' in calls[0]
+    assert 'Content-Type: application/octet-stream' in calls[0]
+
+
+def test_upload_rejects_untrusted_host_before_sending(tmp_path):
+    runner = Recorder(done('{}'))
+    with pytest.raises(GitHubAPIError):
+        make(runner).upload_asset('https://example.test/assets', 'a.zip', tmp_path / 'a')
+    assert runner.calls == []
+
+
+def test_download_preserves_binary_and_failure_preserves_destination(tmp_path):
+    dest = tmp_path / 'nested/archive.zip'
+    calls = []
+
+    def runner(argv, timeout):
+        calls.append(argv)
+        if '--allow-escape-sequences' not in argv:
+            return done(b'', b'response contains terminal escape sequences', 1)
+        return done(b'PK\x00\xff\r\n\x1b[0m', b'')
+
+    api = GitHubAPI(binary_runner=runner)
+    assert api.download_asset('https://api.github.com/repos/a/b/releases/assets/4', dest) == dest
+    assert dest.read_bytes() == b'PK\x00\xff\r\n\x1b[0m'
+    assert 'Accept: application/octet-stream' in calls[0]
+    api.binary_runner = lambda *args: done(b'failure', b'HTTP 403', 1)
+    with pytest.raises(GitHubAPIError):
+        api.download_asset('https://github.com/a/b/releases/download/v1/a.zip', dest)
+    assert dest.read_bytes() == b'PK\x00\xff\r\n\x1b[0m'
+
+
+def test_download_rejects_untrusted_host(tmp_path):
+    with pytest.raises(GitHubAPIError):
+        GitHubAPI().download_asset('https://evil.test/a.zip', tmp_path / 'a')
+
+
+def test_download_accepts_valid_archive_above_json_transport_limit(tmp_path):
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_STORED) as handle:
+        handle.writestr('usage-bridge/data.bin', b'x' * (11 * 1024 * 1024))
+    content = archive.getvalue()
+    dest = tmp_path / 'archive.zip'
+    api = GitHubAPI(binary_runner=lambda *args: done(content, b''))
+    api.download_asset('https://api.github.com/repos/a/b/releases/assets/4', dest)
+    assert dest.read_bytes() == content
+    with zipfile.ZipFile(dest) as handle:
+        assert handle.testzip() is None
+
+
+def test_download_rejects_above_release_asset_limit_without_replacing_destination(tmp_path):
+    dest = tmp_path / 'archive.zip'
+    dest.write_bytes(b'original')
+    content = b'x' * (25 * 1024 * 1024 + 1)
+    api = GitHubAPI(binary_runner=lambda *args: done(content, b''))
+    with pytest.raises(GitHubAPIError, match='oversized'):
+        api.download_asset('https://api.github.com/repos/a/b/releases/assets/4', dest)
+    assert dest.read_bytes() == b'original'
+
+
+def attestation_result(repo, sha, digest, **extra):
+    return json.dumps([{'verificationResult': {'statement': {
+        'predicateType': 'https://github.com/CrazyBaran/spec-kit-usage-bridge/release-source/v1',
+        'subject': [{'name': 'a.zip', 'digest': {'sha256': digest}}],
+        'predicate': {'repository': repo, 'source_sha': sha, 'zip_sha256': digest, **extra},
+    }}}])
+
+
+def test_attestation_verifies_trusted_workflow_and_release_predicate(tmp_path):
+    asset = tmp_path / 'a.zip'
+    asset.write_bytes(b'archive')
+    runner = Recorder(done(attestation_result('a/b', 'a' * 40, hashlib.sha256(b'archive').hexdigest())))
+    assert make(runner).verify_attestation(asset, 'a/b', 'a' * 40) is True
+    argv = runner.calls[0][0]
+    assert argv[:4] == ['gh', 'attestation', 'verify', str(asset)]
+    assert argv[argv.index('--repo') + 1] == 'a/b'
+    assert '--source-digest' not in argv
+    assert argv[argv.index('--source-ref') + 1] == 'refs/heads/main'
+    assert argv[argv.index('--signer-workflow') + 1] == 'a/b/.github/workflows/release-pipeline.yml'
+
+
+@pytest.mark.parametrize('field,value', [('source_sha', 'b' * 40), ('repository', 'evil/repo'),
+                                       ('zip_sha256', '0' * 64), ('run_id', 'other'), ('attempt', '2')])
+def test_attestation_rejects_wrong_signed_release_evidence(tmp_path, field, value):
+    asset = tmp_path / 'a.zip'
+    asset.write_bytes(b'archive')
+    body = json.loads(attestation_result('a/b', 'a' * 40, hashlib.sha256(b'archive').hexdigest(),
+                                        run_id='1', attempt='1'))
+    body[0]['verificationResult']['statement']['predicate'][field] = value
+    with pytest.raises(GitHubAPIError):
+        make(Recorder(done(json.dumps(body)))).verify_attestation(
+            asset, 'a/b', 'a' * 40, run_id='1', attempt='1')
+
+
+def test_graphql_errors_are_not_success():
+    with pytest.raises(GitHubAPIError, match='GraphQL'):
+        make(Recorder(done('{"data": null, "errors": [{"message": "denied"}]}'))).request(
+            'POST', '/graphql', {'query': 'mutation { fake }'})
+
+
+def test_leading_slash_graphql_uses_cli_graphql_endpoint():
+    runner = Recorder(done('{"data": {"ok": true}}'))
+    make(runner).request('POST', '/graphql', {'query': 'mutation { fake }', 'variables': {'input': {}}})
+    assert runner.calls[0][0][8] == 'graphql'

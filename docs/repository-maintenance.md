@@ -118,8 +118,8 @@ Do it in this order:
 
 ## Release authority
 
-The release App needs contents and pull-request write, plus checks, actions, and
-deployments read. It is installed only in this repository. No actor receives a
+The release App needs contents and pull-request write, plus checks, actions,
+deployments, attestations, and administration read. It is installed only in this repository. No actor receives a
 bypass of `usage-bridge-main`. Tag creation, update, and deletion for `v*` are
 limited to that App through the `usage-bridge-tags` ruleset.
 
@@ -128,9 +128,15 @@ self-review, and disable admin bypass. `release-publish` is limited to protected
 branches and holds `RELEASE_APP_PRIVATE_KEY`. `SPEC_KIT_SUBMISSION_TOKEN` lives
 only in `catalog-submit`. There is no personal-token fallback for publication.
 
-Immutable releases are enabled in the repository settings UI. The public REST API
-does not expose a stable field for that toggle, so the tool reports it as a
-verification gap instead of pretending a PATCH succeeded.
+Immutable releases are reconciled using `GET`/`PUT /repos/{owner}/{repo}/immutable-releases`
+and verified by reading the setting back. Existing owned tag rulesets are updated
+in place; environment and tag settings must match the read-back before apply succeeds.
+
+Release setup needs an authenticated GitHub App user token with repository admin
+authority and access to `/user/installations` and installation repositories. Ordinary
+personal/OAuth tokens may not support this discovery API; the tool stops if it cannot
+verify the requested App installation. Workflow jobs use short-lived installation
+tokens, created from repository variable `RELEASE_APP_ID` and the environment secret.
 
 ```text
 python tools/configure_repository.py release --repo CrazyBaran/spec-kit-usage-bridge --release-app-id <id> --reviewer-id <id>

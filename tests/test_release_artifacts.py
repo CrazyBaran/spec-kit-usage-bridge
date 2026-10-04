@@ -9,6 +9,7 @@ import yaml
 from release.artifacts import ArchiveError, runtime_members, validate_archive
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = yaml.safe_load((ROOT / 'extension.yml').read_text(encoding='utf-8-sig'))['extension']['version']
 ENTRYPOINTS = (
     'scripts/python/capture.py',
     'scripts/python/report.py',
@@ -57,14 +58,15 @@ def test_runtime_members_exact_and_legal():
 def test_rebuild_ignores_mtime_and_mode(tmp_path):
     from test_build_release import build
 
-    first, _ = build(ROOT, '0.2.1', tmp_path / 'a', 'https://example.test')
+    first, first_catalog = build(ROOT, VERSION, tmp_path / 'a', 'https://example.test')
     target = ROOT / 'extension.yml'
     previous = target.stat()
     os.utime(target, (1_700_000_000, 1_600_000_000))
     os.chmod(target, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
     try:
-        second, _ = build(ROOT, '0.2.1', tmp_path / 'b', 'https://example.test')
+        second, second_catalog = build(ROOT, VERSION, tmp_path / 'b', 'https://example.test')
         assert first.read_bytes() == second.read_bytes()
+        assert first_catalog.read_bytes() == second_catalog.read_bytes()
     finally:
         os.utime(target, (previous.st_atime, previous.st_mtime))
         os.chmod(target, previous.st_mode)
@@ -141,8 +143,42 @@ def test_untracked_runtime_module_rejected(tmp_path):
     try:
         assert not any(path.endswith('_local_untracked.py') for path in runtime_members(ROOT))
         from test_build_release import build
-        archive, _ = build(ROOT, '0.2.1', tmp_path, 'https://example.test')
+        archive, _ = build(ROOT, VERSION, tmp_path, 'https://example.test')
         with zipfile.ZipFile(archive) as zipped:
             assert not any('_local_untracked.py' in name for name in zipped.namelist())
     finally:
         extra.unlink(missing_ok=True)
+
+
+def test_build_refuses_manifest_symlink_before_reading_it(tmp_path, monkeypatch):
+    manifest = tmp_path / 'extension.yml'
+    manifest.write_text('not a manifest')
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda path: path == manifest or original(path))
+    monkeypatch.setattr('release.artifacts._tracked', lambda repo: {'extension.yml'})
+    with pytest.raises(ArchiveError, match='symlink'):
+        runtime_members(tmp_path)
+
+
+def test_tracked_command_cannot_escape_build_checkout(tmp_path, monkeypatch):
+    import release.artifacts as artifacts
+
+    (tmp_path / 'extension.yml').write_text(
+        'provides:\n  commands:\n    - file: ../outside.md\n', encoding='utf-8')
+    tracked = set(ENTRYPOINTS + VENDOR + LEGAL + ('../outside.md', artifacts.PRICING))
+    monkeypatch.setattr(artifacts, '_tracked', lambda repo: tracked)
+    with pytest.raises(ArchiveError, match='escap'):
+        runtime_members(tmp_path)
+
+
+def test_archive_writer_rejects_tracked_symlink_before_reading_bytes(tmp_path, monkeypatch):
+    import release.artifacts as artifacts
+
+    selected = tmp_path / 'LICENSE'
+    selected.write_text('a link target must not be packaged')
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, 'is_symlink', lambda path: path == selected or original(path))
+    monkeypatch.setattr(artifacts, '_commit_stamp', lambda repo: (2026, 1, 1, 0, 0, 0))
+    with pytest.raises(ArchiveError, match='symlink'):
+        artifacts.write_deterministic_archive(tmp_path, ('LICENSE',), tmp_path / 'archive.zip')
+    assert not (tmp_path / 'archive.zip').exists()
