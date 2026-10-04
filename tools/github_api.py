@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -49,7 +50,43 @@ def default_runner(argv: list[str], timeout: float) -> subprocess.CompletedProce
 
 
 def default_binary_runner(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, timeout=timeout, shell=False)
+    """Bound stdout while reading; kill oversized or stalled producers and reap them."""
+    with tempfile.TemporaryFile() as errors, subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=errors, stdin=subprocess.DEVNULL, shell=False) as process:
+        expired = threading.Event()
+
+        def expire():
+            expired.set()
+            process.kill()
+
+        timer = threading.Timer(timeout, expire)
+        timer.daemon = True
+        timer.start()
+        try:
+            content = bytearray()
+            while True:
+                chunk = process.stdout.read(min(65536, MAX_ASSET_BYTES + 1 - len(content)))
+                if not chunk:
+                    break
+                content.extend(chunk)
+                if len(content) > MAX_ASSET_BYTES:
+                    raise GitHubAPIError('downloaded release asset is oversized')
+            process.wait()
+            if expired.is_set():
+                raise subprocess.TimeoutExpired(argv, timeout)
+            errors.seek(0)
+            secrets = [os.environ[name].encode('utf-8') for name in TOKEN_VARIABLES if os.environ.get(name)]
+            diagnostics = errors.read(MAX_DIAGNOSTIC_CHARS + max(map(len, secrets), default=0))
+            # Look ahead across the cutoff; equal-length masking keeps that cutoff
+            # fixed even when several credentials occur before it.
+            for secret in secrets:
+                diagnostics = diagnostics.replace(secret, b'*' * len(secret))
+            return subprocess.CompletedProcess(argv, process.returncode, bytes(content),
+                                               diagnostics[:MAX_DIAGNOSTIC_CHARS])
+        finally:
+            timer.cancel()
+            if process.poll() is None:
+                process.kill()
 
 
 class GitHubAPI:

@@ -121,7 +121,7 @@ def publish_release(api, evidence: dict, assets: dict[str, Path], prerelease: bo
             'prerelease': prerelease,
             'make_latest': _make_latest(api, evidence, prerelease),
         })
-    elif existing.get('body') not in (None, '', notes) and existing.get('body') != notes:
+    elif existing.get('body') != notes:
         raise ReleasePolicyError('existing release notes do not match the changelog section')
     if existing.get('prerelease') is not prerelease:
         raise ReleasePolicyError('existing release has a different prerelease status')
@@ -141,6 +141,8 @@ def publish_release(api, evidence: dict, assets: dict[str, Path], prerelease: bo
         if asset['name'] in present:
             raise ReleasePolicyError('existing release contains duplicate asset names')
         present[asset['name']] = asset.get('digest')
+    if set(present) - set(assets):
+        raise ReleasePolicyError('existing draft contains unexpected release assets')
     for name, path in sorted(assets.items()):
         digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
         if name in present:

@@ -64,7 +64,8 @@ def test_cli_metadata_loader_requires_original_immutable_asset(tmp_path, defect)
 def published(tmp_path):
     api = FakeAPI()
     evidence, assets = release_assets(tmp_path, tag='v0.2.2')
-    release = dict(id=10, tag_name='v0.2.2', draft=False, prerelease=False, immutable=True, assets=[])
+    release = dict(id=10, tag_name='v0.2.2', draft=False, prerelease=False, immutable=True,
+                   body='Ready.\n', assets=[])
     api.releases.append(release)
     for name, path in assets.items():
         api.upload_asset('https://uploads.github.com/repos/x/y/releases/10/assets', name, path)
@@ -107,6 +108,17 @@ def test_historical_candidate_verification_does_not_require_release_branch(tmp_p
 
     api.request = without_branch
     assert verify_release(api, 'v0.2.2', evidence, tmp_path / 'download')['provenance'] is True
+
+
+def test_verification_rejects_unexpected_remote_asset(tmp_path):
+    api, evidence, _assets = published(tmp_path / 'assets')
+    extra = tmp_path / 'extra.txt'
+    extra.write_bytes(b'unverified')
+    api.upload_asset('https://uploads.github.com/repos/x/y/releases/10/assets', extra.name, extra)
+    destination = tmp_path / 'download'
+    with pytest.raises(ReleasePolicyError, match='unexpected.*asset'):
+        verify_release(api, evidence['tag'], evidence, destination)
+    assert not destination.exists()
 
 
 def test_verification_downloads_remote_bytes_and_does_not_invent_runtime_success(tmp_path):

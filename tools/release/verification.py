@@ -74,6 +74,8 @@ def verify_release(api, tag: str, expected: dict, download_dir: Path, *, downloa
         if name in assets_by_name:
             raise ReleasePolicyError('published release contains duplicate assets')
         assets_by_name[name] = asset
+    if set(assets_by_name) - set(release_asset_names(expected['version'])):
+        raise ReleasePolicyError('published release contains unexpected assets')
     download_dir = Path(download_dir)
     download_dir.mkdir(parents=True, exist_ok=True)
     downloaded = {}

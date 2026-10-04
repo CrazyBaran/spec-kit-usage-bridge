@@ -6,6 +6,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import zipfile
 
 import pytest
@@ -285,6 +286,76 @@ def test_download_rejects_above_release_asset_limit_without_replacing_destinatio
     with pytest.raises(GitHubAPIError, match='oversized'):
         api.download_asset('https://api.github.com/repos/a/b/releases/assets/4', dest)
     assert dest.read_bytes() == b'original'
+
+
+def test_real_binary_transport_stops_oversized_producer_before_completion(tmp_path, monkeypatch):
+    import github_api
+
+    monkeypatch.setattr(github_api, 'MAX_ASSET_BYTES', 1024)
+    completed = tmp_path / 'producer-completed'
+    script = ('import sys; from pathlib import Path; '
+              '[(sys.stdout.buffer.write(b"x" * 65536), sys.stdout.buffer.flush()) for _ in range(256)]; '
+              f'Path({str(completed)!r}).write_text("completed")')
+    with pytest.raises(GitHubAPIError, match='oversized'):
+        github_api.default_binary_runner([sys.executable, '-c', script], 5)
+    assert not completed.exists()
+
+
+@pytest.mark.parametrize('size', [0, 1024])
+def test_real_binary_transport_preserves_bytes_at_or_below_limit(monkeypatch, size):
+    import github_api
+
+    monkeypatch.setattr(github_api, 'MAX_ASSET_BYTES', 1024)
+    script = f'import sys; sys.stdout.buffer.write(bytes(range(256)) * {size // 256})'
+    result = github_api.default_binary_runner([sys.executable, '-c', script], 5)
+    assert result.returncode == 0
+    assert result.stdout == bytes(range(256)) * (size // 256)
+    assert result.stderr == b''
+
+
+def test_real_binary_transport_bounds_stderr_and_preserves_error_status():
+    import github_api
+
+    script = 'import sys; sys.stderr.buffer.write(b"HTTP 403 " + b"x" * 65536); sys.exit(1)'
+    result = github_api.default_binary_runner([sys.executable, '-c', script], 5)
+    assert result.returncode == 1
+    assert result.stdout == b''
+    assert result.stderr.startswith(b'HTTP 403 ')
+    assert len(result.stderr) == 2000
+
+
+def test_real_binary_transport_times_out_stalled_producer(monkeypatch):
+    import github_api
+
+    started = []
+    popen = subprocess.Popen
+
+    def start(*args, **kwargs):
+        process = popen(*args, **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(github_api.subprocess, 'Popen', start)
+    with pytest.raises(subprocess.TimeoutExpired):
+        github_api.default_binary_runner([sys.executable, '-c', 'import time; time.sleep(10)'], 0.5)
+    assert len(started) == 1
+    assert started[0].poll() is not None
+
+
+@pytest.mark.parametrize('name', ['GH_TOKEN', 'GITHUB_TOKEN', 'RELEASE_APP_USER_TOKEN'])
+@pytest.mark.parametrize('prefix', ['x' * 1990, 'é' * 990], ids=['ascii', 'utf8'])
+def test_real_download_redacts_token_crossing_diagnostic_byte_limit(tmp_path, monkeypatch, name, prefix):
+    import github_api
+
+    token = 'SYNTHETIC_SECRET_ABCDEFGHIJ'
+    monkeypatch.setenv(name, token)
+    script = f'import sys; sys.stderr.buffer.write({(prefix + token).encode()!r}); sys.exit(1)'
+    api = GitHubAPI(binary_runner=lambda argv, timeout:
+                    github_api.default_binary_runner([sys.executable, '-c', script], timeout))
+    with pytest.raises(GitHubAPIError) as caught:
+        api.download_asset('https://api.github.com/repos/a/b/releases/assets/4', tmp_path / 'archive.zip')
+    assert 'SYNTHETIC_' not in str(caught.value)
+    assert 'SYNTHETIC_' not in caught.value.stderr
 
 
 def attestation_result(repo, sha, digest, **extra):

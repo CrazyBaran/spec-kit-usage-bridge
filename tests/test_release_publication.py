@@ -210,6 +210,32 @@ def test_latest_only_for_newest_stable_and_notes_from_changelog(tmp_path):
     assert api.created_releases[-1]['make_latest'] == 'false'
 
 
+def test_reused_draft_rejects_unexpected_remote_asset(tmp_path):
+    api = FakeAPI()
+    evidence, assets = release_assets(tmp_path / 'assets')
+    draft = api.request('POST', f'/repos/{REPO}/releases', {
+        'tag_name': evidence['tag'], 'prerelease': True, 'body': 'Ready.\n', 'make_latest': 'false'})
+    extra = tmp_path / 'extra.txt'
+    extra.write_bytes(b'unverified')
+    api.upload_asset(draft['upload_url'], extra.name, extra)
+    with pytest.raises(ReleasePolicyError, match='unexpected.*asset'):
+        publish_release(api, evidence, assets, prerelease=True)
+    assert draft['draft'] is True
+    assert [asset['name'] for asset in draft['assets']] == ['extra.txt']
+
+
+@pytest.mark.parametrize('body', [None, ''])
+def test_reused_draft_requires_changelog_notes_before_publication(tmp_path, body):
+    api = FakeAPI()
+    evidence, assets = release_assets(tmp_path)
+    draft = api.request('POST', f'/repos/{REPO}/releases', {
+        'tag_name': evidence['tag'], 'prerelease': True, 'body': body, 'make_latest': 'false'})
+    with pytest.raises(ReleasePolicyError, match='release notes'):
+        publish_release(api, evidence, assets, prerelease=True)
+    assert draft['draft'] is True
+    assert draft['assets'] == []
+
+
 def test_branch_move_during_upload_leaves_only_a_draft(tmp_path):
     class MovingAPI(FakeAPI):
         def upload_asset(self, url, name, path):
