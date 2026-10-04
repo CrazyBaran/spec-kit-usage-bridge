@@ -115,3 +115,26 @@ Do it in this order:
    normal pull request.
 4. Re-run the dry run (`python tools/configure_repository.py main --repo
    CrazyBaran/spec-kit-usage-bridge`) and confirm `verified: true`.
+
+## Release authority
+
+The release App needs contents and pull-request write, plus checks, actions, and
+deployments read. It is installed only in this repository. No actor receives a
+bypass of `usage-bridge-main`. Tag creation, update, and deletion for `v*` are
+limited to that App through the `usage-bridge-tags` ruleset.
+
+`release-override` and `catalog-submit` require the maintainer reviewer, allow
+self-review, and disable admin bypass. `release-publish` is limited to protected
+branches and holds `RELEASE_APP_PRIVATE_KEY`. `SPEC_KIT_SUBMISSION_TOKEN` lives
+only in `catalog-submit`. There is no personal-token fallback for publication.
+
+Immutable releases are enabled in the repository settings UI. The public REST API
+does not expose a stable field for that toggle, so the tool reports it as a
+verification gap instead of pretending a PATCH succeeded.
+
+```text
+python tools/configure_repository.py release --repo CrazyBaran/spec-kit-usage-bridge --release-app-id <id> --reviewer-id <id>
+```
+
+Add `--apply` only after the App installation and reviewer id are confirmed. A
+missing App leaves publishing disabled and does not block packaging work.

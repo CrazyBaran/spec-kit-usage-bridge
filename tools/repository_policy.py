@@ -391,3 +391,81 @@ def verify_main_policy(observed: dict, expected: dict) -> list[str]:
         if rule_type not in effective_types:
             problems.append(f'effective rules on main lack {rule_type}')
     return problems
+
+
+RELEASE_ENVIRONMENTS = ('release-publish', 'release-override', 'catalog-submit')
+TAG_RULESET_NAME = 'usage-bridge-tags'
+REVIEWED_ENVIRONMENTS = ('release-override', 'catalog-submit')
+IMMUTABLE_RELEASE_UI = (
+    'Enable immutable releases for CrazyBaran/spec-kit-usage-bridge in the repository settings UI. '
+    'GitHub does not expose a stable public REST field for that toggle. Re-run release verification '
+    'after it is enabled and confirm immutable_releases is true.'
+)
+
+
+def _environment_payload(name: str, reviewer_id: int) -> dict:
+    payload = {
+        'wait_timer': 0,
+        'prevent_self_review': False,
+        'can_admins_bypass': False,
+        'reviewers': [],
+        'deployment_branch_policy': {'protected_branches': True, 'custom_branch_policies': False},
+    }
+    if name in REVIEWED_ENVIRONMENTS:
+        payload['reviewers'] = [{'type': 'User', 'id': reviewer_id}]
+    return payload
+
+
+def release_settings_plan(existing: dict, release_app_id: int, reviewer_id: int) -> list[dict]:
+    """Plan tag authority and release environments. Never grants a main bypass."""
+    full_name = ((existing.get('repository') or {}).get('full_name')
+                 or 'CrazyBaran/spec-kit-usage-bridge')
+    base = f'repos/{full_name}'
+    owned_tags = next((item for item in existing.get('rulesets') or []
+                       if item.get('name') == TAG_RULESET_NAME), None)
+    tag_payload = {
+        'name': TAG_RULESET_NAME,
+        'target': 'tag',
+        'enforcement': 'active',
+        'bypass_actors': [{
+            'actor_id': release_app_id,
+            'actor_type': 'Integration',
+            'bypass_mode': 'always',
+        }],
+        'conditions': {'ref_name': {'include': ['refs/tags/v*'], 'exclude': []}},
+        'rules': [{'type': 'creation'}, {'type': 'update'}, {'type': 'deletion'}],
+    }
+    if owned_tags and owned_tags.get('id'):
+        tag_op = {'method': 'PUT', 'path': f"{base}/rulesets/{owned_tags['id']}", 'payload': tag_payload}
+    else:
+        tag_op = {'method': 'POST', 'path': f'{base}/rulesets', 'payload': tag_payload}
+    operations = [tag_op]
+    for name in RELEASE_ENVIRONMENTS:
+        operations.append({
+            'method': 'PUT',
+            'path': f'{base}/environments/{name}',
+            'payload': _environment_payload(name, reviewer_id),
+        })
+    return operations
+
+
+def verify_release_settings(observed: dict, expected: dict) -> list[str]:
+    """Return problems. ``expected`` maps an operation path to its payload."""
+    problems = []
+    if observed.get('immutable_releases') is not True:
+        problems.append('immutable releases are not enabled: ' + IMMUTABLE_RELEASE_UI)
+    environments = observed.get('environments') or {}
+    rulesets = observed.get('rulesets') or []
+    for path, payload in expected.items():
+        if path.endswith('/rulesets') or '/rulesets/' in path:
+            found = next((item for item in rulesets if item.get('name') == payload.get('name')), None)
+            if found is None or found.get('bypass_actors') != payload.get('bypass_actors'):
+                problems.append(f'tag ruleset at {path} does not match the release app bypass')
+            continue
+        name = path.rsplit('/', 1)[-1]
+        current = environments.get(name) or {}
+        if current.get('reviewers') != payload.get('reviewers'):
+            problems.append(f'environment {name} reviewers do not match')
+        if current.get('can_admins_bypass') is not False:
+            problems.append(f'environment {name} allows admin bypass')
+    return problems

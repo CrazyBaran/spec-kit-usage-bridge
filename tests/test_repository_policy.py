@@ -10,7 +10,9 @@ from repository_policy import (
     expected_main_state,
     main_ruleset,
     plan_main_updates,
+    release_settings_plan,
     verify_main_policy,
+    verify_release_settings,
 )
 
 APP_ID = 15368
@@ -530,3 +532,28 @@ def test_absent_server_default_parameters_are_not_drift():
     state = existing_state(repository=repository(allow_auto_merge=True), rulesets=[owned])
     assert plan_main_updates(state, APP_ID) == []
     assert verify_main_policy(observed_state(ruleset=owned), expected_main_state(APP_ID)) == []
+
+
+def test_release_app_cannot_bypass_main():
+    assert main_ruleset(actions_app_id=15368)['bypass_actors'] == []
+    operations = release_settings_plan(existing={}, release_app_id=4242, reviewer_id=777)
+    override = next(op['payload'] for op in operations if op['path'].endswith('/environments/release-override'))
+    assert override['prevent_self_review'] is False
+    assert override['can_admins_bypass'] is False
+    assert override['reviewers'] == [{'type': 'User', 'id': 777}]
+    tag = next(op['payload'] for op in operations if op['payload'].get('name') == 'usage-bridge-tags')
+    assert tag['bypass_actors'] == [{
+        'actor_id': 4242, 'actor_type': 'Integration', 'bypass_mode': 'always',
+    }]
+    assert all(op['payload'].get('name') != 'usage-bridge-main' for op in operations)
+    submit = next(op['payload'] for op in operations if op['path'].endswith('/environments/catalog-submit'))
+    assert submit['reviewers'] == [{'type': 'User', 'id': 777}]
+    assert submit['can_admins_bypass'] is False
+
+
+def test_release_settings_verification_reports_drift():
+    operations = release_settings_plan(existing={}, release_app_id=4242, reviewer_id=777)
+    expected = {op['path']: op['payload'] for op in operations}
+    problems = verify_release_settings({'environments': {}, 'rulesets': [], 'immutable_releases': False}, expected)
+    assert problems
+    assert any('immutable' in problem for problem in problems)

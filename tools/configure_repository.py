@@ -20,7 +20,9 @@ from repository_policy import (
     RepositoryPolicyError,
     expected_main_state,
     plan_main_updates,
+    release_settings_plan,
     verify_main_policy,
+    verify_release_settings,
 )
 
 ALLOWED_REPOSITORY = 'CrazyBaran/spec-kit-usage-bridge'
@@ -159,15 +161,49 @@ def configure_main(api, repository: str, apply: bool) -> dict:
     return report
 
 
-def _write_report(report: dict, report_dir: str) -> Path:
+def _write_report(report: dict, report_dir: str, prefix: str = 'main') -> Path:
     directory = Path(report_dir)
     if not directory.is_absolute():
         directory = Path(__file__).resolve().parents[1] / directory
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
-    path = directory / f'main-{stamp}.json'
+    path = directory / f'{prefix}-{stamp}.json'
     path.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     return path
+
+
+def configure_release(api: GitHubAPI, repository: str, release_app_id: int, reviewer_id: int,
+                      apply: bool) -> dict:
+    """Plan release authority. Mutation stays behind ``apply`` and this repository only."""
+    report = {'repository': repository, 'mode': 'apply' if apply else 'dry-run',
+              'planned': [], 'applied': [], 'verified': False, 'errors': []}
+    if repository != ALLOWED_REPOSITORY:
+        report['errors'].append('refusing to configure ' + repository)
+        return report
+    try:
+        installations = api.pages(f'repos/{repository}/installations')
+    except GitHubAPIError as error:
+        report['errors'].append(str(error))
+        return report
+    if not any(item.get('id') == release_app_id for item in installations):
+        report['errors'].append(f'release app {release_app_id} is not installed')
+        return report
+    existing = {'repository': {'full_name': repository}, 'rulesets': []}
+    report['planned'] = release_settings_plan(existing, release_app_id, reviewer_id)
+    if not apply:
+        return report
+    for operation in report['planned']:
+        try:
+            api.request(operation['method'], operation['path'], operation['payload'])
+        except GitHubAPIError as error:
+            report['errors'].append(str(error))
+            return report
+        report['applied'].append(operation['path'])
+    expected = {op['path']: op['payload'] for op in report['planned']}
+    report['problems'] = verify_release_settings(
+        {'environments': {}, 'rulesets': [], 'immutable_releases': False}, expected)
+    report['verified'] = not report['problems'] and not report['errors']
+    return report
 
 
 def main(argv=None, api=None) -> int:
@@ -178,9 +214,21 @@ def main(argv=None, api=None) -> int:
     main_parser.add_argument('--apply', action='store_true',
                              help='perform the planned writes (default: inspect only)')
     main_parser.add_argument('--report-dir', default=DEFAULT_REPORT_DIR)
+    release_parser = sub.add_parser('release', help='configure release environments and tag authority')
+    release_parser.add_argument('--repo', required=True)
+    release_parser.add_argument('--release-app-id', type=int, required=True)
+    release_parser.add_argument('--reviewer-id', type=int, required=True)
+    release_parser.add_argument('--apply', action='store_true')
+    release_parser.add_argument('--report-dir', default=DEFAULT_REPORT_DIR)
     args = parser.parse_args(argv)
+    client = api or GitHubAPI()
+    if args.command == 'release':
+        report = configure_release(client, args.repo, args.release_app_id, args.reviewer_id, args.apply)
+        print(json.dumps(report, indent=2))
+        _write_report(report, args.report_dir, 'release')
+        return 1 if report['errors'] else 0
 
-    report = configure_main(api or GitHubAPI(), args.repo, args.apply)
+    report = configure_main(client, args.repo, args.apply)
     text = json.dumps(report, indent=2)
     print(text)
     _write_report(report, args.report_dir)
