@@ -45,10 +45,6 @@ def _make_latest(api, evidence: dict, prerelease: bool) -> str:
     return 'true'
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _recheck_source(api, evidence: dict, prerelease: bool) -> None:
     if release_branch_sha(api, evidence['repository'], evidence['version']) != evidence['source_sha']:
         raise ReleasePolicyError('release branch moved after validation')
@@ -146,7 +142,7 @@ def publish_release(api, evidence: dict, assets: dict[str, Path], prerelease: bo
             raise ReleasePolicyError('existing release contains duplicate asset names')
         present[asset['name']] = asset.get('digest')
     for name, path in sorted(assets.items()):
-        digest = 'sha256:' + _digest(path)
+        digest = 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest()
         if name in present:
             if present[name] != digest:
                 raise ReleasePolicyError('refusing to replace draft asset ' + name

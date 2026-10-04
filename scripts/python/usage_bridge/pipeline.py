@@ -217,18 +217,6 @@ def _load_digests(sessions: Sequence[SessionFiles], active_id: str | None, cache
     return digests, parsed, cached, deadline_hit
 
 
-def _usage_by_model(runs: Sequence[AttributedRun]) -> dict[str, dict[str, int]]:
-    """Summed vendored-key usage per model over the runs' main and subagent requests."""
-    buckets: dict[str, dict[str, int]] = {}
-    for attributed in runs:
-        for request in [*attributed.run.requests, *(r for s in attributed.run.subagents for r in s.requests)]:
-            bucket = buckets.setdefault(request.model, dict.fromkeys(("input", "output", "cache_read", "cache_5m",
-                                                                      "cache_1h"), 0))
-            for key, value in request.flat().items():
-                bucket[key] += value or 0
-    return buckets
-
-
 def load_sources(context: ParseContext, config: Config, active: tuple[str, str] | None):
     """Load extra runtimes independently; failures never erase a saved source."""
     digests = []

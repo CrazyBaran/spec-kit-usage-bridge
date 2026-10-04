@@ -21,7 +21,7 @@ from release.orchestration import (
 from release.policy import ReleasePolicyError, parse_version
 from release.prepare import prepare_release
 from release.publication import publish_release
-from release.submission import load_submission_policy, render_submission, submit_release
+from release.submission import load_submission_policy, missing_attestations, render_submission, submit_release
 from release.verification import verify_release
 
 DEFAULT_REPO = 'CrazyBaran/spec-kit-usage-bridge'
@@ -31,10 +31,6 @@ def _read_json(path: Path) -> dict:
     if not path.is_file():
         raise FileNotFoundError('missing configuration file ' + str(path))
     return json.loads(path.read_text(encoding='utf-8'))
-
-
-def _write(path: Path, payload: dict) -> None:
-    write_json(path, payload)
 
 
 def _stable_tag(tag: str) -> str:
@@ -169,9 +165,9 @@ def _dispatch(args, api) -> tuple[dict, int]:
         result = bundle(args.checkout, args.repo, args.version, args.tag, args.source_sha,
                         args.run_id, args.attempt, args.assets_dir,
                         candidate_archive=candidate_archive, candidate_tag=args.candidate_tag or None)
-        _write(args.assets_dir.parent / 'predicate.json', {
+        write_json(args.assets_dir.parent / 'predicate.json', {
             key: result[key] for key in ('repository', 'source_sha', 'zip_sha256', 'run_id', 'attempt')})
-        _write(args.assets_dir.parent / 'extension.json',
+        write_json(args.assets_dir.parent / 'extension.json',
                manifest_from_archive(args.assets_dir / f'usage-bridge-v{args.version}.zip'))
         return result, 0
     if args.command == 'collect':
@@ -226,7 +222,7 @@ def _dispatch(args, api) -> tuple[dict, int]:
         evidence = (_read_json(args.evidence) if args.evidence else
                     _remote_evidence(api, args.repo, args.tag, args.download_dir))
         result = verify_release(api, args.tag, evidence, args.download_dir)
-        _write(args.download_dir / 'extension.json', manifest_from_archive(
+        write_json(args.download_dir / 'extension.json', manifest_from_archive(
             args.download_dir / f"usage-bridge-v{evidence['version']}.zip"))
         return result, 0
     if args.command == 'mergeback':
@@ -263,14 +259,7 @@ def _dispatch(args, api) -> tuple[dict, int]:
             ),
         }
         policy = load_submission_policy()
-        provided = evidence.get('attestations') or {}
-        missing = [
-            name for name, ready in (
-                ('real_project', bool(str(provided.get('real_project') or '').strip())),
-                ('documentation_review', provided.get('documentation_review') is True),
-                ('security_review', bool(str(provided.get('security_review') or '').strip())),
-            ) if not ready
-        ]
+        missing = missing_attestations(evidence)
         if args.prepare_only or missing:
             body = render_submission(
                 manifest, release, evidence, {'headings': policy['required_headings']},
@@ -331,7 +320,7 @@ def main(argv: list[str] | None = None, api=None) -> int:
         print('invalid release evidence: ' + str(exc), file=sys.stderr)
         return 2
     if getattr(args, 'output', None) is not None:
-        _write(args.output, result)
+        write_json(args.output, result)
     if os.environ.get('GITHUB_OUTPUT') and code == 0:
         outputs = {'tag': result.get('tag') or result.get('candidate_tag'),
                    'version': result.get('version'), 'digest': result.get('zip_sha256')}

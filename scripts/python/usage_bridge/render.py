@@ -165,15 +165,6 @@ def _zero() -> dict[str, int]:
     return dict.fromkeys(USAGE_KEYS, 0)
 
 
-def _add_usage(total: dict[str, int], usage: dict[str, Any]) -> None:
-    for key in USAGE_KEYS:
-        total[key] += int(usage.get(key) or 0)
-
-
-def _tokens(usage: dict[str, int]) -> int:
-    return sum(int(usage.get(key) or 0) for key in USAGE_KEYS)
-
-
 def _sum_costs(costs: Sequence[float | None]) -> float | None:
     known = [c for c in costs if c is not None]
     return sum(known) if known else None
@@ -242,20 +233,14 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = {}
     for run in runs:
         row = grouped.setdefault(run["phase"], {"phase": run["phase"], "kind": run.get("kind", "core"),
-                                                "sessions": set(), "calls": 0, "usage": _zero(), "costs": []})
+                                                "sessions": set()})
         row["sessions"].add((run["author"], run["runtime"], run["session_id"]))
-        row["calls"] += int(run.get("calls") or 0)
-        _add_usage(row["usage"], run.get("usage") or {})
-        row["costs"].append(run.get("cost_usd"))
+    # enhance() fills summary fields; reserve their positions to preserve report ordering.
     phases = []
     for row in sorted(grouped.values(), key=lambda r: _phase_key(r["phase"], r["kind"])):
         phases.append({"phase": row["phase"], "kind": row["kind"], "sessions": len(row["sessions"]),
-                       "calls": row["calls"], "usage": row["usage"], "tokens": _tokens(row["usage"]),
-                       "cost_usd": _sum_costs(row["costs"])})
+                       "calls": None, "usage": None, "tokens": None, "cost_usd": None})
 
-    total_usage = _zero()
-    for run in runs:
-        _add_usage(total_usage, run.get("usage") or {})
     session_keys = {(s["author"], s.get("runtime", "claude"), s["session_id"]) for s in sessions}
 
     ordered_sessions = sorted(sessions, key=lambda s: (s.get("first_ts") or "", s["author"], s["session_id"]))
@@ -287,9 +272,7 @@ def merge_feature(sources: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "partial_reasons": sorted({reason for src in ordered for reason in src.get("partial_reasons", [])}),
         "data_as_of": max(stamps) if stamps else None,
         "totals": {"sessions": len(session_keys), "runs": len(runs),
-                   "calls": sum(int(r.get("calls") or 0) for r in runs),
-                   "usage": total_usage, "tokens": _tokens(total_usage),
-                   "cost_usd": _sum_costs([r.get("cost_usd") for r in runs])},
+                   "calls": None, "usage": None, "tokens": None, "cost_usd": None},
         "phases": phases,
         "runs": runs,
         "splitting": splitting,

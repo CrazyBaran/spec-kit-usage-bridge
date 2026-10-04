@@ -22,7 +22,6 @@ REQUIRED_CONTEXTS = (
 REQUIRED_EFFECTIVE_TYPES = (
     'pull_request', 'required_status_checks', 'deletion', 'non_fast_forward')
 REPOSITORY_SETTINGS = ('allow_auto_merge', 'allow_merge_commit')
-RULESET_FIELDS = ('name', 'target', 'enforcement', 'bypass_actors', 'conditions', 'rules')
 # Booleans where True is the weaker setting; every other boolean is stricter when True.
 WEAKER_WHEN_TRUE = ('do_not_enforce_on_create',)
 # pull_request parameters forced to the spec value on the owned ruleset (solo merge).

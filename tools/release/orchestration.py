@@ -15,9 +15,6 @@ from release.artifacts import runtime_members, safe_source, validate_archive, va
 from release.context import decide_gate
 from release.policy import ACTIONS_APP_ID, WAIVABLE_CHECKS, ReleasePolicyError, parse_version
 
-PREDICATE_TYPE = 'https://github.com/CrazyBaran/spec-kit-usage-bridge/release-source/v1'
-INSTALL_CHECKS = tuple(f'install ({os}, {host})' for os in ('ubuntu-latest', 'windows-latest')
-                       for host in ('minimum', 'current'))
 COMMANDS = ('install', 'checkpoint', 'capture', 'report', 'check', 'upgrade')
 
 
@@ -74,13 +71,9 @@ def write_checksums(assets_dir: Path) -> None:
         ''.join(f'{digest(assets_dir / name)}  {name}\n' for name in names), encoding='utf-8')
 
 
-def _job_name(name: str) -> str:
-    return name.rsplit(' / ', 1)[-1]
-
-
 def collect_run_evidence(api, repository: str, source_sha: str, run_id: int, attempt: int,
                          digest: str, override_reason: str = '', waived_checks=(), host_refs=None,
-                         *, install_prefix: str = 'install', require_install: bool = True) -> dict:
+                         *, install_prefix: str = 'install') -> dict:
     """Read only this attempt; old successful attempts and caller claims never count."""
     base = f'/repos/{repository}/actions/runs/{int(run_id)}'
     run = api.request('GET', f'{base}/attempts/{int(attempt)}')
@@ -95,7 +88,7 @@ def collect_run_evidence(api, repository: str, source_sha: str, run_id: int, att
     jobs = api.pages(f'{base}/attempts/{int(attempt)}/jobs')
     by_name = {}
     for job in jobs:
-        name = _job_name(str(job.get('name', '')))
+        name = str(job.get('name', '')).rsplit(' / ', 1)[-1]
         if name in by_name:
             raise ReleasePolicyError('ambiguous job evidence for ' + name)
         by_name[name] = job
@@ -107,9 +100,7 @@ def collect_run_evidence(api, repository: str, source_sha: str, run_id: int, att
             name = f'{install_prefix} ({os_name}, {host})'
             job = by_name.get(name, {})
             if job.get('status') != 'completed' or job.get('conclusion') != 'success':
-                if require_install:
-                    raise ReleasePolicyError('mandatory install/runtime check did not succeed: ' + name)
-                continue
+                raise ReleasePolicyError('mandatory install/runtime check did not succeed: ' + name)
             runtime.append({
                 'source_sha': source_sha, 'zip_sha256': digest, 'isolated': True,
                 'host': host, 'host_ref': hosts[host],

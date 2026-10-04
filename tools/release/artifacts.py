@@ -156,13 +156,6 @@ def write_catalog(repo: Path, archive: Path, version: str, release_tag: str, bas
     return output
 
 
-def _limits(limits: dict | None) -> dict:
-    merged = dict(DEFAULT_LIMITS)
-    if limits:
-        merged.update(limits)
-    return merged
-
-
 def _relative_member(name: str) -> str:
     if '\\' in name or name.startswith('/') or (len(name) >= 2 and name[1] == ':'):
         raise ArchiveError('escaping archive member: ' + name)
@@ -181,7 +174,7 @@ def validate_archive(path: Path, expected_members: tuple[str, ...], limits: dict
     """Validate central-directory metadata. Does not extract or read member bytes."""
     import zipfile
 
-    bounds = _limits(limits)
+    bounds = {**DEFAULT_LIMITS, **(limits or {})}
     compressed = path.stat().st_size
     if compressed > bounds['max_compressed_bytes']:
         raise ArchiveError(f'archive exceeds compressed limit: {compressed}')

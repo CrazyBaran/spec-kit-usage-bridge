@@ -96,7 +96,7 @@ def _checked(ready: bool, label: str) -> str:
     return f"- [{'x' if ready else ' '}] {label}"
 
 
-def _attestations_ready(evidence: dict) -> list[str]:
+def missing_attestations(evidence: dict) -> list[str]:
     provided = evidence.get('attestations') or {}
     missing = []
     if not str(provided.get('real_project') or '').strip():
@@ -149,7 +149,7 @@ def validate_submission_evidence(release: dict, evidence: dict, manifest: dict) 
     for field in _BINDING_FIELDS:
         if binding.get(field) != release.get(field):
             raise ReleasePolicyError('submission attestations do not match ' + field)
-    if _attestations_ready(evidence):
+    if missing_attestations(evidence):
         raise ReleasePolicyError('submission is missing maintainer attestations')
     if evidence.get('readme_verified') is not True:
         raise ReleasePolicyError('source README installation and usage evidence is missing')
@@ -315,7 +315,7 @@ def submit_release(api, release: dict, evidence: dict, *, manifest: dict | None 
     policy = load_submission_policy()
     form = {'headings': policy['required_headings']}
     body = render_submission(manifest or {}, release, evidence, form)
-    missing = _attestations_ready(evidence)
+    missing = missing_attestations(evidence)
     if missing:
         return {'action': 'block', 'status': 'pending', 'body': body,
                 'blockers': tuple('missing attestation: ' + name for name in missing)}
