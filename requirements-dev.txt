@@ -1,3 +1,4 @@
+# CI installs requirements-dev.lock with hashes. Edit this file, then regenerate the lock.
 pytest>=8.3
 ruff==0.16.6
 PyYAML>=6.0

@@ -25,11 +25,16 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ inputs.main_sha }}
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements-dev.txt
-      - run: python tools/release_cli.py prepare --version "${{ inputs.version }}" --main-sha "${{ inputs.main_sha }}" --output release-prepare.json
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Prepare the release branch
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          MAIN_SHA: ${{ inputs.main_sha }}
+        run: python tools/release_cli.py prepare --version "$RELEASE_VERSION" --main-sha "$MAIN_SHA" --output release-prepare.json

@@ -29,5 +29,5 @@ def test_tag_push_cannot_publish():
 
 
 def test_setup_uv_uses_existing_release_tag():
-    uses = [step['uses'] for step in wf('ci.yml')['jobs']['integration']['steps'] if 'uses' in step]
-    assert 'astral-sh/setup-uv@v10.2.0' in uses
+    text = (ROOT / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+    assert 'astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0' in text

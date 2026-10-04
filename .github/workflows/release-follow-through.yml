@@ -1,0 +1,127 @@
+name: Release follow-through
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      digest:
+        required: true
+        type: string
+      real_project:
+        required: false
+        type: string
+        default: ''
+      documentation_review:
+        required: false
+        type: string
+        default: ''
+      security_review:
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Verified tag
+        required: true
+        type: string
+      source_sha:
+        description: Exact release commit
+        required: true
+        type: string
+      digest:
+        description: SHA-256 of the verified ZIP
+        required: true
+        type: string
+      real_project:
+        description: Real-project test description
+        required: false
+        type: string
+        default: ''
+      documentation_review:
+        description: Set to true only after a documentation review
+        required: false
+        type: string
+        default: ''
+      security_review:
+        description: Security-review evidence
+        required: false
+        type: string
+        default: ''
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  detect:
+    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'release' && github.sha || inputs.source_sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Flag a manual stable publication that has no candidate
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          python tools/release_cli.py promotion-context --version "$version" --candidate-tag "" --source-sha "$SOURCE_SHA" --output follow-through.json
+  mergeback:
+    needs: detect
+    if: github.event_name != 'release' && github.repository == 'CrazyBaran/spec-kit-usage-bridge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release-publish
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Enable merge-back without executing release bytes
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          python tools/release_cli.py mergeback --version "$version" --source-sha "$SOURCE_SHA" --verification verification.json --output mergeback.json
+  submit:
+    needs: detect
+    if: github.event_name != 'release' && github.repository == 'CrazyBaran/spec-kit-usage-bridge' && inputs.real_project != '' && inputs.documentation_review == 'true' && inputs.security_review != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: catalog-submit
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Submit through the official catalog issue
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SPEC_KIT_SUBMISSION_TOKEN: ${{ secrets.SPEC_KIT_SUBMISSION_TOKEN }}
+        run: python tools/release_cli.py submit --tag "$RELEASE_TAG" --verification verification.json --evidence submission-evidence.json --manifest extension.json --output submission.json
