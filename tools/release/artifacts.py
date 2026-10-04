@@ -1,6 +1,7 @@
 """Runtime allowlist, deterministic archives, and bounded archive validation."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -215,7 +216,29 @@ def release_asset_names(version: str) -> tuple[str, ...]:
     return (f'usage-bridge-v{version}.zip', 'catalog.json', 'SHA256SUMS', 'release-metadata.json')
 
 
-def validate_release_assets(assets: dict[str, Path], evidence: dict) -> dict:
+def release_vendor(api, evidence: dict) -> dict:
+    """Resolve the reviewed vendor pin from the exact release source, not today's main."""
+    from release.policy import ReleasePolicyError, require_metadata
+
+    require_metadata(evidence)
+    item = api.request('GET', f"/repos/{evidence['repository']}/contents/{VENDOR_FILES[0]}"
+                       f"?ref={evidence['source_sha']}")
+    try:
+        if (item.get('type') != 'file' or item.get('encoding') != 'base64'
+                or type(item.get('size')) is not int or not 0 < item['size'] <= 65536):
+            raise ValueError('unsupported file')
+        raw = base64.b64decode(item['content'].replace('\n', ''), validate=True)
+        if len(raw) != item['size']:
+            raise ValueError('file size mismatch')
+        vendor = json.loads(raw)
+        if not isinstance(vendor, dict) or not isinstance(vendor.get('files'), dict):
+            raise ValueError('missing vendor file hashes')
+        return vendor
+    except (AttributeError, KeyError, TypeError, ValueError, UnicodeError):
+        raise ReleasePolicyError('invalid vendor provenance at release source') from None
+
+
+def validate_release_assets(assets: dict[str, Path], evidence: dict, *, vendor_manifest: dict | None = None) -> dict:
     """Validate actual ZIP, manifest, vendor hashes, catalog, and checksum bytes."""
     import zipfile
 
@@ -259,8 +282,8 @@ def validate_release_assets(assets: dict[str, Path], evidence: dict) -> dict:
                 if not re.fullmatch(r'scripts/python/usage_bridge/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.py', name):
                     raise ReleasePolicyError('archive contains a member outside the runtime allowlist: ' + name)
             vendor_prefix = PREFIX + 'scripts/python/vendor/token_usage/'
-            trusted_vendor = json.loads((Path(__file__).resolve().parents[2]
-                / 'scripts/python/vendor/token_usage/VENDOR.json').read_text(encoding='utf-8'))
+            trusted_vendor = vendor_manifest if vendor_manifest is not None else json.loads(
+                (Path(__file__).resolve().parents[2] / VENDOR_FILES[0]).read_text(encoding='utf-8'))
             if json.loads(archive.read(vendor_prefix + 'VENDOR.json')) != trusted_vendor:
                 raise ReleasePolicyError('archive vendor provenance does not match the reviewed pin')
             for name, checksum in trusted_vendor['files'].items():

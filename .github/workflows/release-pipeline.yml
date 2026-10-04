@@ -176,6 +176,7 @@ jobs:
           retention-days: 14
   publish:
     needs: [context, evaluate]
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.evaluate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: release-publish
@@ -213,12 +214,13 @@ jobs:
           fi
   verify:
     needs: [context, publish]
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.publish.result == 'success' }}
     uses: ./.github/workflows/verify-release.yml
     with:
       tag: ${{ needs.context.outputs.tag }}
   follow-through:
     needs: [context, verify]
-    if: inputs.candidate_tag != ''
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.verify.result == 'success' && inputs.candidate_tag != '' }}
     uses: ./.github/workflows/release-follow-through.yml
     secrets: inherit
     with:

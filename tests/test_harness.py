@@ -15,9 +15,13 @@ def test_token_usage_env_points_into_tmp(tmp_path):
 
 
 def test_package_version():
+    import yaml
+
     import usage_bridge
 
-    assert usage_bridge.__version__ == "0.2.1"
+    root = Path(__file__).resolve().parents[1]
+    manifest = yaml.safe_load((root / 'extension.yml').read_text(encoding='utf-8'))
+    assert usage_bridge.__version__ == manifest['extension']['version']
 
 
 def test_builder_writes_claude_shaped_session(tmp_path):

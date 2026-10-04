@@ -82,7 +82,7 @@ jobs:
         run: python tools/release_cli.py check-verification --verification verified/verification.json --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --digest "$EXPECTED_DIGEST" --output follow-through.json
   mergeback:
     needs: detect
-    if: github.event_name != 'release' && github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && needs.detect.result == 'success' && github.event_name != 'release' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release-publish
@@ -125,7 +125,7 @@ jobs:
           retention-days: 14
   submit:
     needs: detect
-    if: github.event_name != 'release' && github.ref == 'refs/heads/main' && inputs.real_project != '' && inputs.documentation_review == 'true' && inputs.security_review != ''
+    if: ${{ !cancelled() && needs.detect.result == 'success' && github.event_name != 'release' && github.ref == 'refs/heads/main' && inputs.real_project != '' && inputs.documentation_review == 'true' && inputs.security_review != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: catalog-submit

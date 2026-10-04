@@ -1,5 +1,6 @@
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -7,6 +8,57 @@ from github_api import GitHubAPIError
 from release.policy import ReleasePolicyError
 from release.verification import verify_release
 from test_release_publication import SHA, FakeAPI, candidate, release_assets, runtime_records
+
+
+@pytest.mark.parametrize('operation', ['verify', 'retry'])
+def test_historical_release_survives_current_tooling_vendor_update(tmp_path, monkeypatch, operation):
+    from release.publication import publish_release
+    from test_release_publication import ROOT
+
+    api, evidence, assets = published(tmp_path / 'assets')
+    vendor_path = ROOT / 'scripts/python/vendor/token_usage/VENDOR.json'
+    current = json.loads(vendor_path.read_text(encoding='utf-8'))
+    current['commit'] = 'f' * 40
+    read_text = Path.read_text
+
+    def changed_main(path, *args, **kwargs):
+        return json.dumps(current) if path == vendor_path else read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', changed_main)
+    if operation == 'verify':
+        assert verify_release(api, evidence['tag'], evidence, tmp_path / 'download')['provenance']
+    else:
+        assert publish_release(api, evidence, assets, prerelease=False)['reused'] is True
+
+
+@pytest.mark.parametrize('source_vendor', [b'not JSON', b'{}',
+    b'{"commit": "different", "files": {}}'])
+def test_verification_rejects_vendor_pin_different_from_release_source(tmp_path, source_vendor):
+    api, evidence, _assets = published(tmp_path / 'assets')
+    api.source_vendor = source_vendor
+    with pytest.raises(ReleasePolicyError, match='vendor'):
+        verify_release(api, evidence['tag'], evidence, tmp_path / 'download')
+
+
+@pytest.mark.parametrize('defect', ['mutable', 'digest', 'asset_identity'])
+def test_cli_metadata_loader_requires_original_immutable_asset(tmp_path, defect):
+    from release_cli import _remote_evidence
+
+    api, evidence, _assets = published(tmp_path / 'assets')
+    release = api.releases[0]
+    asset = next(item for item in release['assets'] if item['name'] == 'release-metadata.json')
+    if defect == 'mutable':
+        release['immutable'] = False
+    elif defect == 'digest':
+        asset['digest'] = 'sha256:' + 'f' * 64
+    else:
+        previous = asset['url']
+        asset['url'] = 'https://api.github.com/repos/other/repo/releases/assets/1'
+        api.blobs[asset['url']] = api.blobs[previous]
+    destination = tmp_path / 'download'
+    destination.mkdir()
+    with pytest.raises(ReleasePolicyError):
+        _remote_evidence(api, evidence['repository'], evidence['tag'], destination)
 
 
 def published(tmp_path):

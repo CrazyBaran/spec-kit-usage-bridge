@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import zipfile
@@ -75,12 +76,18 @@ class FakeAPI:
         self.uploads = []
         self.releases = []
         self.branch_sha = SHA
+        self.source_sha = SHA
         self.tags = {'v0.2.2-rc.1': SHA}
         self.blobs = {}
         self.provenance = True
         self._next = 1
+        self.source_vendor = (ROOT / 'scripts/python/vendor/token_usage/VENDOR.json').read_bytes()
 
     def request(self, method, path, payload=None):
+        if method == 'GET' and '/contents/scripts/python/vendor/token_usage/VENDOR.json?' in path:
+            assert path.endswith('?ref=' + self.source_sha)
+            return {'type': 'file', 'encoding': 'base64', 'size': len(self.source_vendor),
+                    'content': base64.b64encode(self.source_vendor).decode()}
         if method == 'GET' and path.endswith('/immutable-releases'):
             return {'enabled': True}
         if method == 'GET' and '/actions/runs/' in path and '/attempts/' in path:

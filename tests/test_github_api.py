@@ -192,7 +192,7 @@ def test_pages_hard_cap():
     assert len(runner.calls) == 50
 
 
-@pytest.mark.parametrize('name', ['GH_TOKEN', 'GITHUB_TOKEN'])
+@pytest.mark.parametrize('name', ['GH_TOKEN', 'GITHUB_TOKEN', 'RELEASE_APP_USER_TOKEN'])
 def test_diagnostics_redact_token(monkeypatch, name):
     secret = 'ghp_SUPERSECRET123'
     monkeypatch.setenv(name, secret)

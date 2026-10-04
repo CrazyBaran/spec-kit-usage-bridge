@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -136,6 +137,18 @@ def test_retry_updates_owned_rule_without_duplicate(fake_api):
     assert report['verified'] is True
     assert len(writes(fake_api)) == before
     assert len(owned(fake_api)) == 1
+
+
+@pytest.mark.parametrize('apply', [False, True])
+def test_owned_ruleset_unrelated_exclusion_remains_verified(fake_api, apply):
+    assert configure_main(fake_api, REPO, apply=True)['verified']
+    owned(fake_api)[0]['conditions']['ref_name']['exclude'] = ['refs/heads/other']
+    fake_api.calls.clear()
+    report = configure_main(fake_api, REPO, apply=apply)
+    assert report['planned'] == []
+    assert report['verified'] is True
+    assert writes(fake_api) == []
+    assert owned(fake_api)[0]['conditions']['ref_name']['exclude'] == ['refs/heads/other']
 
 
 def test_partial_failure_reports_prior_writes(fake_api):
@@ -350,7 +363,7 @@ class ReleaseAPI(FakeAPI):
 
 def test_release_apply_discovers_app_id_and_verifies_actual_readback():
     api = ReleaseAPI()
-    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True, discovery_api=api)
     assert report['errors'] == []
     assert report['verified'] is True
     tags = [r for r in api.rulesets.values() if r['name'] == 'usage-bridge-tags']
@@ -361,9 +374,9 @@ def test_release_apply_discovers_app_id_and_verifies_actual_readback():
 
 def test_release_reapply_is_idempotent_without_duplicate_rulesets():
     api = ReleaseAPI()
-    assert configure_repository.configure_release(api, REPO, 4242, 777, True)['verified']
+    assert configure_repository.configure_release(api, REPO, 4242, 777, True, discovery_api=api)['verified']
     api.calls.clear()
-    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True, discovery_api=api)
     assert report['verified'] is True
     assert report['planned'] == []
     assert writes(api) == []
@@ -372,14 +385,16 @@ def test_release_reapply_is_idempotent_without_duplicate_rulesets():
 
 def test_release_does_not_confuse_installation_id_with_app_id():
     api = ReleaseAPI()
-    report = configure_repository.configure_release(api, REPO, 9000, 777, True)
+    report = configure_repository.configure_release(api, REPO, 9000, 777, True, discovery_api=api)
     assert report['errors']
     assert writes(api) == []
 
 
-def test_release_readback_drift_fails_apply_cli(tmp_path):
+def test_release_readback_drift_fails_apply_cli(tmp_path, monkeypatch):
     api = ReleaseAPI()
     api.ignore_writes = True
+    monkeypatch.setenv('RELEASE_APP_USER_TOKEN', 'app-user-token')
+    monkeypatch.setattr(configure_repository, 'GitHubAPI', lambda **kwargs: api)
     assert configure_repository.main([
         'release', '--repo', REPO, '--release-app-id', '4242', '--reviewer-id', '777',
         '--apply', '--report-dir', str(tmp_path)], api=api) == 1
@@ -389,15 +404,57 @@ def test_release_duplicate_owned_tag_rulesets_fail_without_mutation():
     api = ReleaseAPI()
     for identity in (1, 2):
         api.rulesets[identity] = {'id': identity, 'name': 'usage-bridge-tags', 'rules': []}
-    report = configure_repository.configure_release(api, REPO, 4242, 777, True)
+    report = configure_repository.configure_release(api, REPO, 4242, 777, True, discovery_api=api)
     assert report['errors']
     assert writes(api) == []
 
 
 def test_release_verification_catches_disabled_or_weakened_tag_rules():
     api = ReleaseAPI()
-    assert configure_repository.configure_release(api, REPO, 4242, 777, True)['verified']
+    assert configure_repository.configure_release(api, REPO, 4242, 777, True, discovery_api=api)['verified']
     next(iter(api.rulesets.values()))['enforcement'] = 'disabled'
-    report = configure_repository.configure_release(api, REPO, 4242, 777, False)
+    report = configure_repository.configure_release(api, REPO, 4242, 777, False, discovery_api=api)
     assert report['verified'] is False
     assert any('tag ruleset' in problem for problem in report['problems'])
+
+
+def test_release_setup_uses_separate_discovery_and_admin_authority(tmp_path, monkeypatch):
+    admin = ReleaseAPI()
+    discovery = ReleaseAPI()
+
+    def reject_app_discovery(path):
+        if path.startswith('user/installations'):
+            raise GitHubAPIError('administrator token is not an App user token', 403)
+        return ReleaseAPI.pages(admin, path)
+
+    admin.pages = reject_app_discovery
+    monkeypatch.setenv('GH_TOKEN', 'administrator-token')
+    monkeypatch.setenv('RELEASE_APP_USER_TOKEN', 'app-user-token')
+
+    def discovery_transport(argv, **kwargs):
+        assert kwargs['env']['GH_TOKEN'] == 'app-user-token'
+        path = argv[-1].split('?')[0]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(discovery.pages(path)), '')
+
+    monkeypatch.setattr(configure_repository.subprocess, 'run', discovery_transport)
+    code = configure_repository.main([
+        'release', '--repo', REPO, '--release-app-id', '4242', '--reviewer-id', '777',
+        '--apply', '--report-dir', str(tmp_path)], api=admin)
+    report = json.loads(next(tmp_path.glob('release-*.json')).read_text(encoding='utf-8'))
+    assert code == 0
+    assert report['errors'] == []
+    assert report['verified'] is True
+    assert writes(admin)
+    assert writes(discovery) == []
+    assert any(c.path == 'user/installations/9000/repositories' for c in discovery.calls)
+    assert configure_repository.os.environ['GH_TOKEN'] == 'administrator-token'
+
+
+def test_release_cli_requires_discovery_credential_before_any_writes(tmp_path, monkeypatch):
+    monkeypatch.delenv('RELEASE_APP_USER_TOKEN', raising=False)
+    api = ReleaseAPI()
+    result = configure_repository.main([
+        'release', '--repo', REPO, '--release-app-id', '4242', '--reviewer-id', '777',
+        '--apply', '--report-dir', str(tmp_path)], api=api)
+    assert result == 1
+    assert writes(api) == []

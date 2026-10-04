@@ -6,12 +6,15 @@ import re
 import subprocess
 from pathlib import Path
 
+import yaml
+
 from github_api import GitHubAPI, GitHubAPIError
 from release.policy import ReleasePolicyError, parse_version
 
 _STABLE_TAG = re.compile(r'^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$')
 _BOT_NAME = 'usage-bridge-release'
 _BOT_EMAIL = 'usage-bridge-release@users.noreply.github.com'
+_RELEASE_FILES = ('extension.yml', 'CHANGELOG.md', 'scripts/python/usage_bridge/__init__.py')
 
 
 def prepare_release(api: GitHubAPI, repo: str, version: str, main_sha: str, *,
@@ -57,7 +60,7 @@ def _upload_release_tree(api, repo: str, checkout: Path, version: str, main_sha:
         'base_tree': parent['tree']['sha'],
         'tree': [{'path': name, 'mode': '100644', 'type': 'blob',
                   'content': (checkout / name).read_text(encoding='utf-8')}
-                 for name in ('extension.yml', 'CHANGELOG.md')],
+                 for name in _RELEASE_FILES],
     })
     commit = api.request('POST', f'{base}/commits', {
         'message': f'chore: prepare release {version}',
@@ -113,10 +116,15 @@ def _commit_release_tree(checkout: Path, version: str, main_sha: str) -> str:
     _git(checkout, 'checkout', '-B', branch, main_sha)
     manifest = checkout / 'extension.yml'
     text = manifest.read_text(encoding='utf-8')
-    updated, count = re.subn(r'(version:\s*")[^"]+(")', rf'\g<1>{version}\2', text, count=1)
+    document = yaml.safe_load(text)
+    document['extension']['version'] = version
+    manifest.write_text(yaml.safe_dump(document, sort_keys=False), encoding='utf-8')
+    package = checkout / _RELEASE_FILES[2]
+    updated, count = re.subn(r'(?m)^(__version__\s*=\s*[\x22\x27])[^\x22\x27]+([\x22\x27])',
+                             rf'\g<1>{version}\2', package.read_text(encoding='utf-8'), count=1)
     if count != 1:
-        raise ReleasePolicyError('extension.yml has no version field to update')
-    manifest.write_text(updated, encoding='utf-8')
+        raise ReleasePolicyError('package has no version field to update')
+    package.write_text(updated, encoding='utf-8')
     changelog = checkout / 'CHANGELOG.md'
     notes = changelog.read_text(encoding='utf-8') if changelog.exists() else '# Changelog\n'
     heading = f'## [{version}]'
@@ -127,7 +135,7 @@ def _commit_release_tree(checkout: Path, version: str, main_sha: str) -> str:
         else:
             notes = f'{heading}\n\n{notes}'
         changelog.write_text(notes, encoding='utf-8')
-    _git(checkout, 'add', 'extension.yml', 'CHANGELOG.md')
+    _git(checkout, 'add', *_RELEASE_FILES)
     env = dict(os.environ)
     env.update(GIT_AUTHOR_NAME=_BOT_NAME, GIT_AUTHOR_EMAIL=_BOT_EMAIL,
                GIT_COMMITTER_NAME=_BOT_NAME, GIT_COMMITTER_EMAIL=_BOT_EMAIL)

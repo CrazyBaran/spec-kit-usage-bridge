@@ -6,7 +6,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from release.artifacts import validate_release_assets
+from release.artifacts import release_vendor, validate_release_assets
 from release.context import decide_gate, promotion_context, release_branch_sha, resolve_tag_sha
 from release.policy import (
     WAIVABLE_CHECKS,
@@ -60,7 +60,7 @@ def _validate_publication(api, evidence: dict, assets: dict, prerelease: bool) -
     require_metadata(evidence)
     if prerelease != ('-rc.' in evidence['tag']):
         raise ReleasePolicyError('release tag and prerelease status disagree')
-    validate_release_assets(assets, evidence)
+    validate_release_assets(assets, evidence, vendor_manifest=release_vendor(api, evidence))
     require_verification(evidence.get('verification'), evidence)
     original_gate = decide_gate(dict(evidence, digest=evidence['zip_sha256'], required=WAIVABLE_CHECKS))
     if not original_gate['allowed']:

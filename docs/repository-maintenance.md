@@ -132,10 +132,13 @@ Immutable releases are reconciled using `GET`/`PUT /repos/{owner}/{repo}/immutab
 and verified by reading the setting back. Existing owned tag rulesets are updated
 in place; environment and tag settings must match the read-back before apply succeeds.
 
-Release setup needs an authenticated GitHub App user token with repository admin
-authority and access to `/user/installations` and installation repositories. Ordinary
-personal/OAuth tokens may not support this discovery API; the tool stops if it cannot
-verify the requested App installation. Workflow jobs use short-lived installation
+Release setup uses two credentials. Authenticate `gh` (or set `GH_TOKEN`) with a
+maintainer credential with repository administration write authority for configuration.
+Set `RELEASE_APP_USER_TOKEN` to a user access token issued by the release App for
+read-only `/user/installations` and installation-repository discovery. The tool
+requires both authorities; it never sends configuration writes through the discovery
+client. Keep the release App's administration permission at read. Tokens must be
+provided through the environment, not command arguments. Workflow jobs use short-lived installation
 tokens, created from repository variable `RELEASE_APP_ID` and the environment secret.
 
 ```text

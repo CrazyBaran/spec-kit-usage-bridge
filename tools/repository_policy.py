@@ -356,7 +356,7 @@ def _verify_ruleset(observed: dict | None, expected: dict) -> list[str]:
     for ref in expected['conditions']['ref_name']['include']:
         if ref not in ref_name.get('include', []):
             problems.append(f'ruleset does not include {ref}')
-    if ref_name.get('exclude'):
+    if any(_matches_main(pattern) for pattern in ref_name.get('exclude', [])):
         problems.append(f'ruleset excludes refs: {ref_name["exclude"]!r}')
     observed_rules = {r['type']: r for r in observed.get('rules', [])}
     for rule_type in BLOCKING_RULE_TYPES:

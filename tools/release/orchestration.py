@@ -11,7 +11,14 @@ from pathlib import Path
 import yaml
 
 from build_release import build
-from release.artifacts import runtime_members, safe_source, validate_archive, validate_release_assets, write_catalog
+from release.artifacts import (
+    release_vendor,
+    runtime_members,
+    safe_source,
+    validate_archive,
+    validate_release_assets,
+    write_catalog,
+)
 from release.context import decide_gate
 from release.policy import ACTIONS_APP_ID, HOST_REFS, WAIVABLE_CHECKS, ReleasePolicyError, parse_version
 
@@ -161,7 +168,8 @@ def collect(api, evidence: dict, *, assets_dir: Path | None = None,
                                       catalog_verified=True, checksums_verified=True)
         write_json(assets_dir / 'release-metadata.json', result)
         write_checksums(assets_dir)
-        validate_release_assets({path.name: path for path in assets_dir.iterdir() if path.is_file()}, result)
+        validate_release_assets({path.name: path for path in assets_dir.iterdir() if path.is_file()}, result,
+                                vendor_manifest=release_vendor(api, result))
     return result
 
 

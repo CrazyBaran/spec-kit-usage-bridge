@@ -126,7 +126,9 @@ does not merge it.
 
 1. Dispatch Prepare release with version `X.Y.Z` and the current `main` SHA. The
    App opens `release/X.Y.Z` and a draft pull request. Re-running reuses that
-   branch. The job does not create a tag or a release.
+   branch. Preparation updates the extension manifest and package version together,
+   preserving the manifest schema version, and adds the changelog section.
+   The job does not create a tag or a release.
 2. Dispatch Release with the same version and the exact release commit. CI runs
    on that SHA alongside the install matrix (Linux and Windows, minimum and current
    Spec Kit host, Python 3.12). Minimum compatibility uses `v1.0.12`; current
@@ -205,7 +207,9 @@ of mandatory stable-host evidence. No official nightly artifact is assumed.
 ### Verification of published assets
 
 `verify-release.yml` downloads those four assets, verifies their digests, contents,
-and signed provenance, then exercises installation and runtime commands again on
+and signed provenance. Vendor provenance is checked against `VENDOR.json` at the
+exact attested release source SHA, so later vendor updates on `main` do not invalidate
+historical releases. Verification then exercises installation and runtime commands again on
 Linux and Windows. Only the completed verification artifact feeds merge-back and
 submission. Missing maintainer attestations leave submission pending; dispatch
 Release follow-through from `main` with the stable tag, exact SHA/digest and human

@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 
-from release.artifacts import release_asset_names, validate_release_assets
+from release.artifacts import release_asset_names, release_vendor, validate_release_assets
 from release.context import resolve_tag_sha
 from release.policy import ReleasePolicyError, require_candidate, require_metadata, require_runtime
 
@@ -93,7 +93,7 @@ def verify_release(api, tag: str, expected: dict, download_dir: Path, *, downloa
         if asset.get('digest') != 'sha256:' + digest:
             raise ReleasePolicyError('downloaded asset digest differs from the immutable release: ' + name)
         downloaded[name] = dest
-    validated = validate_release_assets(downloaded, expected)
+    validated = validate_release_assets(downloaded, expected, vendor_manifest=release_vendor(api, expected))
     archive = downloaded[f"usage-bridge-v{expected['version']}.zip"]
     if api.verify_attestation(archive, repository, expected['source_sha'],
                               run_id=expected['run_id'], attempt=expected['attempt']) is not True:

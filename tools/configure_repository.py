@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,7 +176,7 @@ def _write_report(report: dict, report_dir: str, prefix: str = 'main') -> Path:
 
 
 def configure_release(api: GitHubAPI, repository: str, release_app_id: int, reviewer_id: int,
-                      apply: bool) -> dict:
+                      apply: bool, *, discovery_api: GitHubAPI) -> dict:
     """Plan release authority. Mutation stays behind ``apply`` and this repository only."""
     report = {'repository': repository, 'mode': 'apply' if apply else 'dry-run',
               'planned': [], 'applied': [], 'verified': False, 'errors': [], 'problems': []}
@@ -190,10 +192,10 @@ def configure_release(api: GitHubAPI, repository: str, release_app_id: int, revi
         if release_app_id <= 0 or reviewer_id <= 0:
             report['errors'].append('release app and reviewer IDs must be positive')
             return report
-        installations = [item for item in api.pages('user/installations')
+        installations = [item for item in discovery_api.pages('user/installations')
                          if item.get('app_id') == release_app_id and not item.get('suspended_at')]
         accessible = any(any(r.get('full_name', '').lower() == repository.lower()
-                             for r in api.pages(f'user/installations/{item["id"]}/repositories'))
+                              for r in discovery_api.pages(f'user/installations/{item["id"]}/repositories'))
                          for item in installations)
         if not accessible:
             report['errors'].append(f'release app {release_app_id} is not installed with access to {repository}')
@@ -251,7 +253,16 @@ def main(argv=None, api=None) -> int:
     args = parser.parse_args(argv)
     client = api or GitHubAPI()
     if args.command == 'release':
-        report = configure_release(client, args.repo, args.release_app_id, args.reviewer_id, args.apply)
+        token = os.environ.get('RELEASE_APP_USER_TOKEN')
+        if not token:
+            report = _report(args.repo, args.apply)
+            report['errors'].append('RELEASE_APP_USER_TOKEN is required for separate App installation discovery')
+        else:
+            discovery = GitHubAPI(runner=lambda argv, timeout: subprocess.run(
+                argv, timeout=timeout, capture_output=True, text=True, encoding='utf-8', shell=False,
+                env=dict(os.environ, GH_TOKEN=token)))
+            report = configure_release(client, args.repo, args.release_app_id, args.reviewer_id, args.apply,
+                                       discovery_api=discovery)
         print(json.dumps(report, indent=2))
         _write_report(report, args.report_dir, 'release')
         return 1 if report['errors'] or (args.apply and not report['verified']) else 0

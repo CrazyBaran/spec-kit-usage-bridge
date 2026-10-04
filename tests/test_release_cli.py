@@ -448,6 +448,7 @@ def test_clean_cli_candidate_to_stable_chain_uses_same_remote_archive_bytes(cli_
 
     api = ChainAPI()
     api.branch_sha = source_sha
+    api.source_sha = source_sha
     api.tags = {}
     cli_fixture.api = api
 

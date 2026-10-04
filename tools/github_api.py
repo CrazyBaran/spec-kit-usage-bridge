@@ -20,7 +20,7 @@ MAX_ATTEMPTS = 3
 PAGE_SIZE = 100
 MAX_PAGES = 50
 TRANSIENT_STATUSES = {429, 502, 503, 504}
-TOKEN_VARIABLES = ('GH_TOKEN', 'GITHUB_TOKEN')
+TOKEN_VARIABLES = ('GH_TOKEN', 'GITHUB_TOKEN', 'RELEASE_APP_USER_TOKEN')
 STATUS_PATTERN = re.compile(r'\(HTTP (\d{3})\)')
 RELEASE_PREDICATE = 'https://github.com/CrazyBaran/spec-kit-usage-bridge/release-source/v1'
 

@@ -22,7 +22,7 @@ from release.policy import ReleasePolicyError, parse_version
 from release.prepare import prepare_release
 from release.publication import publish_release
 from release.submission import load_submission_policy, missing_attestations, render_submission, submit_release
-from release.verification import verify_release
+from release.verification import published_metadata, verify_release
 
 DEFAULT_REPO = 'CrazyBaran/spec-kit-usage-bridge'
 
@@ -278,22 +278,9 @@ def _dispatch(args, api) -> tuple[dict, int]:
 
 
 def _remote_evidence(api, repo: str, tag: str, directory: Path) -> dict:
-    from urllib.parse import quote
-
     if not re.fullmatch(r'v\d+\.\d+\.\d+(?:-rc\.[1-9]\d*)?', tag):
         raise ReleasePolicyError('invalid release tag')
-    release = api.request('GET', f'/repos/{repo}/releases/tags/{quote(tag, safe="")}')
-    if release.get('draft') or release.get('tag_name') != tag:
-        raise ReleasePolicyError('verification requires a published release with the requested tag')
-    matches = [asset for asset in release.get('assets', []) if asset.get('name') == 'release-metadata.json']
-    if len(matches) != 1:
-        raise ReleasePolicyError('published release must have exactly one release-metadata.json')
-    destination = directory / 'release-metadata.json'
-    api.download_asset(matches[0]['url'], destination)
-    evidence = _read_json(destination)
-    if evidence.get('repository') != repo or evidence.get('tag') != tag:
-        raise ReleasePolicyError('downloaded release metadata does not match requested repository/tag')
-    return evidence
+    return published_metadata(api, repo, tag, directory)
 
 
 def main(argv: list[str] | None = None, api=None) -> int:

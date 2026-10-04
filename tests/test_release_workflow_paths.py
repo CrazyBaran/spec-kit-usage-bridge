@@ -1,7 +1,43 @@
 import json
+import re
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from test_workflows import wf
+
+
+@pytest.mark.parametrize('workflow,job', [
+    ('release-pipeline.yml', 'publish'), ('release-pipeline.yml', 'verify'),
+    ('release-pipeline.yml', 'follow-through'), ('release-follow-through.yml', 'mergeback'),
+    ('release-follow-through.yml', 'submit'),
+])
+@pytest.mark.parametrize('ancestor', ['skipped', 'failure'])
+def test_successful_release_dependencies_continue_past_skipped_or_waived_ancestors(workflow, job, ancestor):
+    definition = wf(workflow)['jobs'][job]
+    dependencies = definition['needs']
+    dependencies = [dependencies] if isinstance(dependencies, str) else dependencies
+    expression = definition.get('if', 'success()')
+    expression = expression.removeprefix('${{').removesuffix('}}').strip()
+    # GitHub's default success() includes failed/skipped ancestors, even after
+    # a successful intermediary job with an explicit status condition.
+    if not re.search(r'\b(?:always|cancelled|success|failure)\(', expression):
+        expression = 'success() && (' + expression + ')'
+    expression = re.sub(r'!(?!=)', 'not ', expression).replace('&&', 'and').replace('||', 'or')
+    needs = SimpleNamespace(**{name: SimpleNamespace(result='success') for name in dependencies})
+    scope = dict(needs=needs, success=lambda: ancestor == 'success', always=lambda: True,
+                 cancelled=lambda: False,
+                 github=SimpleNamespace(event_name='workflow_dispatch', ref='refs/heads/main'),
+                 inputs=SimpleNamespace(candidate_tag='v0.2.2-rc.1', real_project='tested',
+                                        documentation_review='true', security_review='reviewed'))
+    assert eval(expression, {'__builtins__': {}}, scope) is True
+    for name in dependencies:
+        getattr(needs, name).result = 'failure'
+        assert eval(expression, {'__builtins__': {}}, scope) is False
+        getattr(needs, name).result = 'success'
+    scope['cancelled'] = lambda: True
+    assert eval(expression, {'__builtins__': {}}, scope) is False
 
 
 def test_prepare_and_promote_dispatch_from_main_contracts():
@@ -138,7 +174,7 @@ def test_publication_explicitly_invokes_verification_and_stable_follow_through()
     assert 'publish' in jobs['verify']['needs']
     assert jobs['follow-through']['uses'] == './.github/workflows/release-follow-through.yml'
     assert 'verify' in jobs['follow-through']['needs']
-    assert jobs['follow-through']['if'] == "inputs.candidate_tag != ''"
+    assert "inputs.candidate_tag != ''" in jobs['follow-through']['if']
     assert jobs['follow-through']['with']['digest'] == '${{ needs.verify.outputs.digest }}'
     verify = wf('verify-release.yml')['jobs']
     assert 'release_cli.py verify ' in json.dumps(verify['download'])
