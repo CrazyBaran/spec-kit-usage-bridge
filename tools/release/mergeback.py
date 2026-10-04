@@ -15,7 +15,10 @@ def enable_mergeback(api, version: str, release_sha: str, *, repo: str = DEFAULT
     pull = matches[0]
     if (pull.get('head') or {}).get('sha') != release_sha and not pull.get('merged'):
         return {'status': 'manual_action_required', 'branch': branch}
+    if pull.get('checks') and any(item.get('conclusion') != 'success' for item in pull['checks']):
+        return {'status': 'manual_action_required', 'pull_request': pull.get('html_url')}
     if pull.get('merged'):
+        api.request('DELETE', f'/repos/{repo}/git/refs/heads/{branch}')
         return {'status': 'already_merged', 'pull_request': pull.get('html_url')}
     if pull.get('mergeable') is False:
         return {'status': 'manual_action_required', 'pull_request': pull.get('html_url')}

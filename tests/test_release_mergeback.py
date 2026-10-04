@@ -10,6 +10,7 @@ class FakeAPI:
         self.direct_main_updates = []
         self.deleted_branches = []
         self.auto_merges = []
+        self.extra_pulls = []
         self.pull_request = {
             'number': 7, 'draft': True, 'merged': False, 'mergeable': True,
             'html_url': 'https://example.test/pull/7',
@@ -19,7 +20,7 @@ class FakeAPI:
 
     def pages(self, path):
         if '/pulls' in path:
-            return [self.pull_request]
+            return [self.pull_request, *self.extra_pulls]
         return []
 
     def request(self, method, path, payload=None):
@@ -63,5 +64,30 @@ def test_already_merged_is_a_noop():
     api.pull_request['merged'] = True
     result = enable_mergeback(api, '0.2.2', SHA, repo=REPO)
     assert result['status'] == 'already_merged'
+    assert api.auto_merges == []
+    assert api.direct_main_updates == []
+    assert api.deleted_branches == [f'/repos/{REPO}/git/refs/heads/release/0.2.2']
+
+
+def test_unrelated_pr_is_untouched():
+    api = FakeAPI()
+    api.pull_request['merged'] = True
+    api.extra_pulls = [{
+        'number': 9, 'draft': False, 'merged': False, 'mergeable': True,
+        'html_url': 'https://example.test/pull/9',
+        'head': {'ref': 'docs/readme', 'sha': 'b' * 40},
+        'base': {'ref': 'main'},
+    }]
+    result = enable_mergeback(api, '0.2.2', SHA, repo=REPO)
+    assert result['status'] == 'already_merged'
+    assert all('/pulls/9' not in path for path in api.deleted_branches)
+    assert api.auto_merges == []
+
+
+def test_failed_required_checks_do_not_merge():
+    api = FakeAPI()
+    api.pull_request['checks'] = [{'name': 'lint', 'conclusion': 'failure'}]
+    result = enable_mergeback(api, '0.2.2', SHA, repo=REPO)
+    assert result['status'] == 'manual_action_required'
     assert api.auto_merges == []
     assert api.deleted_branches == []
