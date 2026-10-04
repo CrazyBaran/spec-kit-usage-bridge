@@ -1,7 +1,14 @@
 # Release and update guide
 
-This guide describes the release workflow for maintainers and installation for Spec Kit users. A release is created
-from a version tag after CI passes; creating tags and publishing releases requires maintainer authorization.
+This guide describes the release workflow for maintainers and installation for Spec Kit users.
+Publication is a `workflow_dispatch` from protected `main`, not a tag push. Creating tags
+and publishing releases requires the release App and the `release-publish` environment.
+
+The catalog and archive commands below are the intended public install after a verified
+release. As of 2026-10-02 those URLs are not live; use a source checkout until a real
+asset has been verified. The sections below keep the archive contents and the install
+commands. [Automated release authority](#automated-release-authority) covers App
+setup, candidate promotion, overrides, and catalog issues.
 
 ## Release contents
 
@@ -16,7 +23,7 @@ delivery remains manual/unverified; see [native smoke coverage](native-smoke.md)
 
 The release workflow runs CI, builds `usage-bridge-vX.Y.Z.zip` with one top-level `usage-bridge/` folder, generates
 `catalog.json`, and publishes both assets with the matching `CHANGELOG.md` section as release notes. Packaging follows
-`.extensionignore`. The catalog entry carries the extension manifest fields, release download URL, documentation,
+the runtime allowlist in `tools/release/artifacts.py`. The catalog entry carries the extension manifest fields, release download URL, documentation,
 changelog, requirements, provided commands and hooks, tags and timestamps.
 
 Before releasing, update `extension.yml` and `CHANGELOG.md` together. The changelog records the vendored token-usage
@@ -78,3 +85,89 @@ the archive before publishing. Vendor hashes stay unchanged. Update/reinstall ea
 project to render the new command; development installs use `specify extension add
 D:/spec-kit-usage-bridge --dev`. Preserve existing configuration and report history.
 Preparing this branch does not publish a tag or release.
+
+## Automated release authority
+
+Publication uses a GitHub App installed only in `CrazyBaran/spec-kit-usage-bridge`.
+The App needs contents and pull-request write, plus checks, actions, and
+deployments read. `RELEASE_APP_PRIVATE_KEY` is an environment secret on
+`release-publish` and `release-override` only. Build and test jobs do not receive
+it. There is no personal-token fallback. If the App is not installed, packaging
+can still run locally and publishing stays blocked.
+
+`SPEC_KIT_SUBMISSION_TOKEN` is a CrazyBaran credential stored only in
+`catalog-submit`. It opens or updates the upstream catalog issue. It is not a
+publishing token.
+
+| Environment | Who approves | What it may do |
+|---|---|---|
+| `release-publish` | protected `main` workflow | prepare a branch, publish a verified candidate or stable asset |
+| `release-override` | CrazyBaran, self-review allowed, admins cannot bypass | waive a completed quality-check failure |
+| `catalog-submit` | CrazyBaran, self-review allowed, admins cannot bypass | create or update the Spec Kit submission issue |
+
+Tag creation, update, and deletion for `v*` is limited to the release App through
+the `usage-bridge-tags` ruleset. The App cannot bypass `usage-bridge-main`.
+Immutable releases are turned on in the repository settings UI. The public REST
+API does not expose that toggle, so verification reports the gap instead of
+claiming a PATCH succeeded. A retry reconciles the existing tag and assets. The
+publisher refuses to replace an asset whose digest differs and does not create a
+second release for the same tag.
+
+Repository admins can still change rules or publish by hand. A manually published
+stable release is detected and flagged. Follow-through does not submit it and
+does not merge it.
+
+### Prepare, candidate, promote
+
+1. Dispatch Prepare release with version `X.Y.Z` and the current `main` SHA. The
+   App opens `release/X.Y.Z` and a draft pull request. Re-running reuses that
+   branch. The job does not create a tag or a release.
+2. Dispatch Release with the same version and the exact release commit. CI runs
+   on that SHA, then the install matrix (Linux and Windows, minimum and current
+   Spec Kit host, Python 3.12). Both host channels currently resolve to the
+   reviewed tag `v1.0.12`. Publication calls `python tools/release_cli.py publish`
+   and does not call `gh release create`.
+3. Dispatch Promote release with the stable version, the published candidate tag,
+   and the same source SHA. A missing, draft, or stale candidate is refused. A
+   newer fix needs a new candidate before stable promotion.
+
+Mutation jobs share the concurrency group `usage-bridge-release` with
+`cancel-in-progress: false`. Actions concurrency has no `queue: max` key, so
+that key is not set. Job budgets are 10 minutes for prepare, 20 minutes for
+lint, policy, and publication, 30 minutes for the unit matrix, and 45 minutes
+for the install matrix.
+
+### Override scope
+
+An override can waive one of the seven completed CI quality checks when its
+conclusion is `failure`, `timed_out`, `action_required`, or `startup_failure`.
+The waiver must name that check, include a reason, and match the run id,
+attempt, and source SHA. Approval comes from `release-override` history bound
+to that attempt and the artifact digest. A JSON field `approved=true` is not
+approval. Pending, missing, skipped, and cancelled checks are never waived.
+Packaging, digest, source SHA, candidate existence, and install evidence are
+never waived.
+
+### Catalog issue
+
+Stable submission opens an issue in `github/spec-kit` using the reviewed
+extension form. The download URL is the tag-pinned stable ZIP plus its SHA-256.
+The body does not apply upstream labels and does not write the upstream catalog.
+Missing real-project, documentation, or security attestation leaves a prepared
+body and does not open an issue. Prereleases are refused. An untriaged owned
+issue for an older version is updated in place. The same version is reused. A
+triaged issue is not rewritten; a newer verified stable release opens one
+superseding issue.
+
+The reviewed upstream snapshot is commit
+`ae5ade7234be5cb1d975f736c4e06dd46d1326d6`. Those files are data. They are not
+executed and they do not change our rules.
+
+Follow-through is separate from publication. A submission failure does not
+remove a verified release, and merge-back does not run downloaded release code.
+Branch deletion happens only after the release pull request has merged.
+
+Exit `0` is success or reuse, `2` is a policy or input block, `3` is an API
+failure, and `4` means a required file or credential is missing. The first
+production candidate and the first stable release stay a deliberate maintainer
+dispatch after these checks.

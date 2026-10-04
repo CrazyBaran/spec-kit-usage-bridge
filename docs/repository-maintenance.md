@@ -138,3 +138,7 @@ python tools/configure_repository.py release --repo CrazyBaran/spec-kit-usage-br
 
 Add `--apply` only after the App installation and reviewer id are confirmed. A
 missing App leaves publishing disabled and does not block packaging work.
+
+The dispatch order, override scope, catalog-issue lifecycle, and retry behavior
+are described in [Release lifecycle](release.md). No public release asset exists
+until that path has been run and verified.
