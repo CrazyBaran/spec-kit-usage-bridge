@@ -18,7 +18,9 @@ import yaml
 from builders import SessionBuilder, stop_payload
 
 ROOT = Path(__file__).resolve().parents[2]
-SPECIFY = ['uvx', '--from', 'git+https://github.com/github/spec-kit.git@v1.0.12', 'specify']
+SPECIFY = ['uvx', '--from',
+           'git+https://github.com/github/spec-kit.git@' + os.environ.get('UB_SPEC_KIT_REF', 'v1.0.12'),
+           'specify']
 pytestmark = pytest.mark.integration
 
 
