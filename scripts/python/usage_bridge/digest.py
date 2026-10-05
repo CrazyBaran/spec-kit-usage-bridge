@@ -84,9 +84,7 @@ class SubagentDigest:
     requests: list[Request] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["requests"] = [r.to_json() for r in self.requests]
-        return data
+        return asdict(self)
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> SubagentDigest:

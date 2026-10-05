@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "upstream_repository": "github/spec-kit",
+  "upstream_commit": "ae5ade7234be5cb1d975f736c4e06dd46d1326d6",
+  "form_path": ".github/ISSUE_TEMPLATE/extension_submission.yml",
+  "form_sha256": "2ba795a853f06d6f3e5aa4c67c0dc534ecc59e11df25ca68fb8c6e0a9fbe1553",
+  "reviewed_fingerprints": {
+    "CONTRIBUTING.md": "5f41da71ef8737ca6f0bea9cd7406ee00f96968976552946f09bfeb79403815f",
+    "extensions/EXTENSION-PUBLISHING-GUIDE.md": "7e471208d81f72b4eb791622463391bb98615e55766d09c2b12e699ca777f052",
+    ".github/workflows/add-community-extension.md": "03a953fb7076ec6051c8c500f07dac99e02dfbc66affc12e3c6aba9ca9b5bb87",
+    ".github/ISSUE_TEMPLATE/extension_submission.yml": "2ba795a853f06d6f3e5aa4c67c0dc534ecc59e11df25ca68fb8c6e0a9fbe1553"
+  },
+  "author": "CrazyBaran",
+  "extension_id": "usage-bridge",
+  "marker": "usage-bridge-submission:CrazyBaran/spec-kit-usage-bridge:usage-bridge",
+  "triage_label": "extension-submission",
+  "required_headings": [
+    "Extension ID",
+    "Extension Name",
+    "Version",
+    "Description",
+    "Author",
+    "Repository URL",
+    "Download URL",
+    "License",
+    "Required Spec Kit Version",
+    "Number of Commands",
+    "Tags",
+    "Key Features",
+    "Testing Checklist",
+    "Submission Requirements",
+    "Testing Details",
+    "Example Usage",
+    "Proposed Catalog Entry"
+  ]
+}

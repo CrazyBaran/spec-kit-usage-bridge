@@ -37,7 +37,9 @@ Git is recommended for branch attribution and worktree discovery.
 ### Install from source today
 
 As of **2026-10-02**, the public repository has no published GitHub releases; the v0.2.1
-release and latest catalog URLs return 404. Public release publishing is planned.
+release and latest catalog URLs return 404. Public release publishing is planned and
+described in [Release lifecycle](docs/release.md). Do not install from a release URL
+until that document's verification has been run against a real asset.
 Use a source checkout until release assets are available.
 
 Clone [this repository](https://github.com/CrazyBaran/spec-kit-usage-bridge). From the root

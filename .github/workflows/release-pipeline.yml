@@ -1,0 +1,230 @@
+name: Release pipeline
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      candidate_tag:
+        type: string
+        default: ''
+      override_reason:
+        type: string
+        default: ''
+      waived_checks:
+        type: string
+        default: '[]'
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+jobs:
+  context:
+    if: github.repository == 'CrazyBaran/spec-kit-usage-bridge' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.context.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - name: Resolve the release context
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          if [ -n "$CANDIDATE_TAG" ]; then
+            python tools/release_cli.py promotion-context --version "$RELEASE_VERSION" --candidate-tag "$CANDIDATE_TAG" --source-sha "$SOURCE_SHA" --output context.json
+          else
+            python tools/release_cli.py candidate-context --version "$RELEASE_VERSION" --source-sha "$SOURCE_SHA" --output context.json
+          fi
+  ci:
+    needs: context
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      source_sha: ${{ inputs.source_sha }}
+  build:
+    needs: context
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
+          path: source
+      - name: Build with trusted tools without executing the release checkout
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_TAG: ${{ needs.context.outputs.tag }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: python tools/release_cli.py bundle --checkout source --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" --source-sha "$SOURCE_SHA" --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --candidate-tag "$CANDIDATE_TAG" --assets-dir release-assets --output bundle.json
+      - name: Attest the exact release source and archive digest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-assets/*.zip
+          predicate-type: https://github.com/CrazyBaran/spec-kit-usage-bridge/release-source/v1
+          predicate-path: predicate.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-input-${{ github.run_attempt }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+  install:
+    needs: build
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        host: [minimum, current]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-input-${{ github.run_attempt }}
+          path: release-assets
+      - name: Install and exercise the exact attested archive
+        env:
+          UB_REQUIRE_INTEGRATION: '1'
+          UB_SPEC_KIT_REF: ${{ matrix.host == 'minimum' && 'v1.0.12' || 'v1.1.0' }}
+          UB_RELEASE_ARCHIVE: ${{ github.workspace }}/release-assets/usage-bridge-v${{ inputs.version }}.zip
+        run: python -m pytest tests/integration/test_release_install.py -q
+  override:
+    needs: [ci, install]
+    if: always() && needs.install.result == 'success' && inputs.override_reason != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release-override
+    permissions:
+      contents: read
+    steps:
+      - name: Record the separate approval for this run attempt
+        run: echo "Quality waiver approval completed; mandatory archive checks still apply."
+  evaluate:
+    needs: [build, ci, install, override]
+    if: always() && needs.build.result == 'success' && needs.install.result == 'success' && (needs.override.result == 'success' || needs.override.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-input-${{ github.run_attempt }}
+          path: release-assets
+      - name: Collect actual current-attempt results and bind approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE_REASON: ${{ inputs.override_reason }}
+          WAIVED_CHECKS: ${{ inputs.waived_checks }}
+        run: python tools/release_cli.py collect --evidence release-assets/release-metadata.json --assets-dir release-assets --override-reason "$OVERRIDE_REASON" --waived-checks "$WAIVED_CHECKS" --output release-evidence.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-ready-${{ github.run_attempt }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: [context, evaluate]
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.evaluate.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release-publish
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-ready-${{ github.run_attempt }}
+          path: release-assets
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-actions: read
+          permission-attestations: read
+          permission-administration: read
+      - name: Publish after rechecking remote state and current evidence
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          if [ -n "$CANDIDATE_TAG" ]; then
+            python tools/release_cli.py publish --evidence release-assets/release-metadata.json --assets-dir release-assets --output publish.json
+          else
+            python tools/release_cli.py publish --evidence release-assets/release-metadata.json --assets-dir release-assets --output publish.json --prerelease
+          fi
+  verify:
+    needs: [context, publish]
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.publish.result == 'success' }}
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      tag: ${{ needs.context.outputs.tag }}
+  follow-through:
+    needs: [context, verify]
+    if: ${{ !cancelled() && needs.context.result == 'success' && needs.verify.result == 'success' && inputs.candidate_tag != '' }}
+    uses: ./.github/workflows/release-follow-through.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.context.outputs.tag }}
+      source_sha: ${{ inputs.source_sha }}
+      digest: ${{ needs.verify.outputs.digest }}
+      verified_artifact: verified-release-${{ github.run_attempt }}

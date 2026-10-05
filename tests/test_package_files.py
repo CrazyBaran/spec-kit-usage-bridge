@@ -21,7 +21,7 @@ EXPECTED_MANIFEST = {  # spec §6.1
     "extension": {
         "id": "usage-bridge",
         "name": "Usage Bridge — token-usage for Spec Kit",
-        "version": "0.2.1",
+        "version": __version__,
         "description": "Bridges token-usage into Spec Kit: automatic per-phase, per-feature token & cost audit of the "
                        "SDD flow across sessions, from agent transcripts.",
         "author": "CrazyBaran",

@@ -1,4 +1,4 @@
-name: Release
+name: Promote release
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +8,10 @@ on:
         type: string
       source_sha:
         description: Exact release branch commit
+        required: true
+        type: string
+      candidate_tag:
+        description: Published prerelease at the current release branch tip
         required: true
         type: string
       override_reason:
@@ -34,5 +38,6 @@ jobs:
     with:
       version: ${{ inputs.version }}
       source_sha: ${{ inputs.source_sha }}
+      candidate_tag: ${{ inputs.candidate_tag }}
       override_reason: ${{ inputs.override_reason }}
       waived_checks: ${{ inputs.waived_checks }}

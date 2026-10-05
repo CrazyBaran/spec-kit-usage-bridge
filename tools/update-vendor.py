@@ -71,8 +71,6 @@ def _changed_sections(sections: list[tuple[str, str]], previous: str) -> str:
         if version == previous:
             break
         selected.append(body)
-    if previous and not any(version == previous for version, _ in sections):
-        return "\n\n".join(selected)
     return "\n\n".join(selected)
 
 
