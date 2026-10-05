@@ -82,8 +82,12 @@ def _require_newer_than_stable(api: GitHubAPI, repo: str, version: str) -> None:
 
 
 def _require_only_this_train(api: GitHubAPI, repo: str, branch: str) -> None:
-    for pull in api.pages(f'/repos/{repo}/pulls?state=open'):
-        head = str((pull.get('head') or {}).get('ref') or '')
+    heads = [str((pull.get('head') or {}).get('ref') or '')
+             for pull in api.pages(f'/repos/{repo}/pulls?state=open')]
+    # Refs also catch a branch orphaned by a preparation that failed before opening its PR.
+    heads += [str(ref.get('ref') or '').removeprefix('refs/heads/')
+              for ref in api.pages(f'/repos/{repo}/git/matching-refs/heads/release/')]
+    for head in heads:
         if head.startswith('release/') and head != branch:
             raise ReleasePolicyError('another release train is open: ' + head)
 

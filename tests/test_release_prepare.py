@@ -77,6 +77,8 @@ class FakeAPI:
             return list(self.releases)
         if '/pulls' in path:
             return list(self.pulls)
+        if '/git/matching-refs/heads/release/' in path:
+            return [{'ref': f'refs/heads/release/{name}'} for name in self.refs]
         return []
 
 
@@ -158,6 +160,13 @@ def test_prepare_blocks_other_open_train(tmp_path):
     api = FakeAPI()
     api.pulls.append({'head': {'ref': 'release/0.2.3'}, 'draft': True})
     with pytest.raises(ReleasePolicyError):
+        prepare_release(api, REPO, '0.2.2', SHA, checkout=_checkout(tmp_path))
+
+
+def test_prepare_blocks_orphan_branch_from_another_train(tmp_path):
+    api = FakeAPI()
+    api.refs['0.2.3'] = SHA
+    with pytest.raises(ReleasePolicyError, match='release/0.2.3'):
         prepare_release(api, REPO, '0.2.2', SHA, checkout=_checkout(tmp_path))
 
 
